@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Robin Search</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -486,6 +488,55 @@
     .modal-link:hover { opacity: .8; }
     .modal-link-primary { background: #1d6ef5; color: #fff; }
     .modal-link-secondary { background: var(--bg-feat); color: var(--text); border: 1px solid var(--border-card); }
+
+    /* ── Map panel ───────────────────────────────────────────────────────── */
+    #map-panel {
+      width: 380px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+      background: var(--bg);
+      transition: width .2s;
+    }
+    #map-panel.hidden { width: 0; overflow: hidden; border-left: none; }
+
+    #map-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
+
+    #map-container { flex: 1; }
+
+    /* Listing pin */
+    .map-pin {
+      width: 24px; height: 24px; border-radius: 50%;
+      background: #1d6ef5; color: #fff;
+      font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,.45);
+      cursor: pointer;
+    }
+    .map-pin-landmark {
+      background: #e74c3c; font-size: 13px;
+      width: 28px; height: 28px;
+    }
+
+    #map-toggle-btn {
+      background: none; border: 1px solid var(--border-input);
+      border-radius: 6px; color: var(--text-sub); font-size: 13px;
+      padding: 4px 8px; cursor: pointer; flex-shrink: 0;
+      transition: color .15s, border-color .15s;
+    }
+    #map-toggle-btn:hover { color: var(--text); border-color: var(--text-session); }
   </style>
 </head>
 <body>
@@ -496,7 +547,10 @@
       <div class="logo">Robin</div>
       <div class="sub">Real-estate search</div>
     </div>
-    <button id="theme-btn" title="Toggle light/dark mode">☀</button>
+    <div style="display:flex;gap:6px">
+      <button id="map-toggle-btn" title="Toggle map">Map</button>
+      <button id="theme-btn" title="Toggle light/dark mode">☀</button>
+    </div>
   </div>
   <button id="new-chat-btn">+ New Chat</button>
   <div id="sessions-list"></div>
@@ -512,6 +566,13 @@
     ></textarea>
     <button id="send-btn">&#9658;</button>
   </div>
+</div>
+
+<div id="map-panel">
+  <div id="map-header">
+    <span>Map</span>
+  </div>
+  <div id="map-container"></div>
 </div>
 
 <div id="modal-overlay">
@@ -635,16 +696,19 @@
     thread.innerHTML = '';
     const sess = currentSession();
     if (!sess || sess.messages.length === 0) { showEmptyState(); return; }
+    let lastResults = null;
     for (const msg of sess.messages) {
       if (msg.type === 'user') {
         appendUserBubble(msg.content, false);
       } else if (msg.type === 'results') {
         appendResultsBlock(msg.listings, msg.meta, msg.prevMeta, false);
+        lastResults = msg;
       } else if (msg.type === 'error') {
         appendErrorBubble(msg.content, false);
       }
     }
     thread.scrollTop = thread.scrollHeight;
+    if (lastResults) updateMap(lastResults.listings, lastResults.meta);
   }
 
   // ── Thread helpers ───────────────────────────────────────────────────────
@@ -711,6 +775,7 @@
     }
 
     if (scroll) appendEl(wrap); else thread.appendChild(wrap);
+    if (scroll) updateMap(listings, meta);
     return wrap;
   }
 
@@ -1165,6 +1230,98 @@
   });
   btn.addEventListener('click', send);
   newBtn.addEventListener('click', () => createNewSession());
+
+  // ── Map ──────────────────────────────────────────────────────────────────
+  const mapPanel      = document.getElementById('map-panel');
+  const mapToggleBtn  = document.getElementById('map-toggle-btn');
+  let _map            = null;
+  let _mapMarkers     = [];
+  let _mapCircle      = null;
+  let _mapLandmark    = null;
+
+  function _initMap() {
+    if (_map) return;
+    _map = L.map('map-container', { zoomControl: true })
+             .setView([47.3769, 8.5417], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(_map);
+  }
+
+  function updateMap(listings, meta) {
+    if (mapPanel.classList.contains('hidden')) return;
+    _initMap();
+
+    // Clear previous layers
+    _mapMarkers.forEach(m => m.remove());
+    _mapMarkers = [];
+    if (_mapCircle)   { _mapCircle.remove();   _mapCircle   = null; }
+    if (_mapLandmark) { _mapLandmark.remove();  _mapLandmark = null; }
+
+    const bounds = [];
+    const soft = meta?.extracted_soft_facts || {};
+    const hard = meta?.extracted_hard_filters || {};
+
+    // Radius circle (hard filter) — draw first so pins appear on top
+    if (hard.latitude != null && hard.longitude != null && hard.radius_km != null) {
+      _mapCircle = L.circle([hard.latitude, hard.longitude], {
+        radius: hard.radius_km * 1000,
+        color: '#1d6ef5', fillColor: '#1d6ef5',
+        fillOpacity: 0.08, weight: 2, dashArray: '6 4',
+      }).addTo(_map);
+      bounds.push([hard.latitude, hard.longitude]);
+    }
+
+    // Landmark pin
+    if (soft.landmark_lat != null && soft.landmark_lon != null) {
+      const icon = L.divIcon({
+        html: `<div class="map-pin map-pin-landmark" title="${soft.landmark_name || 'Landmark'}">★</div>`,
+        className: '', iconSize: [28, 28], iconAnchor: [14, 14],
+      });
+      _mapLandmark = L.marker([soft.landmark_lat, soft.landmark_lon], { icon, zIndexOffset: 1000 })
+        .addTo(_map)
+        .bindPopup(`<b>${soft.landmark_name || 'Landmark'}</b>`);
+      bounds.push([soft.landmark_lat, soft.landmark_lon]);
+    }
+
+    // Listing pins
+    listings.forEach((result, i) => {
+      const { latitude, longitude, title, price_chf, city } = result.listing;
+      if (latitude == null || longitude == null) return;
+      const icon = L.divIcon({
+        html: `<div class="map-pin">${i + 1}</div>`,
+        className: '', iconSize: [24, 24], iconAnchor: [12, 12],
+      });
+      const marker = L.marker([latitude, longitude], { icon })
+        .addTo(_map)
+        .bindTooltip(`#${i + 1} ${title}<br>CHF ${price_chf?.toLocaleString() || '?'}/mo`, { direction: 'top', offset: [0, -10] });
+      marker.on('click', () => showModal(result));
+      _mapMarkers.push(marker);
+      bounds.push([latitude, longitude]);
+    });
+
+    if (bounds.length > 0) {
+      _map.fitBounds(bounds, { padding: [32, 32], maxZoom: 15 });
+    }
+  }
+
+  function toggleMap() {
+    const hidden = mapPanel.classList.toggle('hidden');
+    mapToggleBtn.style.color = hidden ? '' : 'var(--price)';
+    if (!hidden) {
+      // Panel just became visible — Leaflet needs a size update
+      setTimeout(() => { if (_map) _map.invalidateSize(); }, 210);
+      // Replay last results onto map
+      const sess = currentSession();
+      if (sess) {
+        const last = [...sess.messages].reverse().find(m => m.type === 'results');
+        if (last) updateMap(last.listings, last.meta);
+      }
+    }
+  }
+
+  mapToggleBtn.addEventListener('click', toggleMap);
 
   // ── Boot ─────────────────────────────────────────────────────────────────
   load();
