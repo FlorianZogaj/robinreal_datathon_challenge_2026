@@ -6,6 +6,8 @@ from typing import Any
 
 import anthropic
 
+import app.participant.geocoding as _geocoding
+from app.participant.geocoding import geocode_landmark
 from app.models.schemas import HardFilters
 
 _client: anthropic.AsyncAnthropic | None = None
@@ -31,7 +33,9 @@ Output ONLY a valid JSON object with exactly two keys: "hard" and "soft".
   "max_rooms": float or null,
   "features": ["only from: balcony, elevator, parking, garage, fireplace, child_friendly, pets_allowed, new_build, wheelchair_accessible, private_laundry, minergie_certified"] | null,
   "offer_type": "RENT" | "SALE" | null,
-  "object_category": ["Wohnung", "Haus", "Büro", "Gewerbe", "Studio"] | null
+  "object_category": ["Wohnung", "Haus", "Büro", "Gewerbe", "Studio"] | null,
+  "landmark": string | null,
+  "radius_km": float | null
 }
 
 "soft" schema (use null for signals not mentioned):
@@ -68,6 +72,10 @@ Critical Swiss rules:
 - Never invent constraints. When in doubt, omit (null) rather than guess.
 - Mention of neighborhood (Kreis 4, Kreis 5, Gundeldingen, Oerlikon) → add to keywords, do NOT set city unless you also know the city
 - RENT is the default offer_type for Swiss listings if not specified; only set SALE if explicitly stated
+- Landmark rule: "landmark" = specific named building/station/institution only, never a bare city name.
+  Expand abbreviations: "HB" → "Zürich HB", "ETH" → "ETH Zürich", "EPFL" → "EPFL Lausanne".
+  "radius_km" = explicit stated distance ONLY ("max 5km from ETH", "within 3km", "3 Kilometer Umkreis").
+  Leave radius_km null for vague language ("near", "close to", "Nähe") — those become soft signals.
 
 Multi-turn conversation rules:
 - When prior conversation context is provided, inherit all filters from the previous turn unless the current query explicitly changes or removes them
@@ -142,8 +150,25 @@ async def _call_claude(
     except Exception:
         return HardFilters(), {"raw_query": query, "keywords": [], "preferred_features": [], "negative_signals": []}
 
-    hard = _parse_hard(data.get("hard") or {}, query)
+    h = data.get("hard") or {}
+    hard = _parse_hard(h, query)
     soft = _parse_soft(data.get("soft") or {}, query)
+
+    if _geocoding.enabled:
+        landmark: str | None = h.get("landmark") or None
+        raw_radius = h.get("radius_km")
+        radius_km: float | None = float(raw_radius) if raw_radius is not None else None
+        if landmark:
+            coords = geocode_landmark(landmark)
+            if coords is not None:
+                if radius_km is not None:
+                    hard.latitude, hard.longitude = coords
+                    hard.radius_km = radius_km
+                else:
+                    soft["landmark_lat"] = coords[0]
+                    soft["landmark_lon"] = coords[1]
+                    soft["landmark_name"] = landmark
+
     return hard, soft
 
 

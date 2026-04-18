@@ -55,12 +55,46 @@ async def rank_listings(
         f = _feature_score(c, soft_facts)
         g = _geo_score(c, soft_facts)
         a = _soft_attr_score(c, soft_facts)
-        if use_images:
-            i = img_scores.get(str(c["listing_id"]), 0.3)
-            total = 0.28 * t + 0.20 * f + 0.16 * g + 0.16 * a + 0.20 * i
+        lm = _landmark_score(c, soft_facts)
+        i = img_scores.get(str(c["listing_id"])) if use_images else None
+        if lm is not None and i is not None:
+            total = 0.25 * lm + 0.15 * i + 0.22 * t + 0.15 * f + 0.12 * g + 0.11 * a
+            bd: dict[str, Any] = {
+                "landmark": round(lm, 4), "landmark_w": 0.25,
+                "image": round(i, 4), "image_w": 0.15,
+                "text": round(t, 4), "text_w": 0.22,
+                "feature": round(f, 4), "feature_w": 0.15,
+                "geo": round(g, 4), "geo_w": 0.12,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.11,
+            }
+        elif lm is not None:
+            total = 0.30 * lm + 0.245 * t + 0.175 * f + 0.140 * g + 0.140 * a
+            bd = {
+                "landmark": round(lm, 4), "landmark_w": 0.30,
+                "text": round(t, 4), "text_w": 0.245,
+                "feature": round(f, 4), "feature_w": 0.175,
+                "geo": round(g, 4), "geo_w": 0.14,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.14,
+            }
+        elif i is not None:
+            total = 0.20 * i + 0.28 * t + 0.20 * f + 0.16 * g + 0.16 * a
+            bd = {
+                "image": round(i, 4), "image_w": 0.20,
+                "text": round(t, 4), "text_w": 0.28,
+                "feature": round(f, 4), "feature_w": 0.20,
+                "geo": round(g, 4), "geo_w": 0.16,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.16,
+            }
         else:
             total = 0.35 * t + 0.25 * f + 0.20 * g + 0.20 * a
+            bd = {
+                "text": round(t, 4), "text_w": 0.35,
+                "feature": round(f, 4), "feature_w": 0.25,
+                "geo": round(g, 4), "geo_w": 0.20,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.20,
+            }
         scored.append((total, c))
+        breakdowns[str(c["listing_id"])] = bd
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
@@ -189,6 +223,25 @@ def _geo_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
     return min(sum(parts) / len(parts), 1.0) if parts else 0.5
 
 
+# ── Landmark proximity score ─────────────────────────────────────────────────
+
+def _landmark_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float | None:
+    """Returns 0.0–1.0 proximity score if soft_facts has landmark coords, else None."""
+    lat = soft_facts.get("landmark_lat")
+    lon = soft_facts.get("landmark_lon")
+    c_lat = _float(c.get("latitude"))
+    c_lon = _float(c.get("longitude"))
+    if lat is None or lon is None or c_lat is None or c_lon is None:
+        return None
+    R = 6371.0
+    dlat = math.radians(c_lat - lat)
+    dlon = math.radians(c_lon - lon)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat)) * math.cos(math.radians(c_lat)) * math.sin(dlon / 2) ** 2)
+    dist_km = R * 2 * math.asin(math.sqrt(a))
+    return max(0.0, 1.0 - dist_km / 10.0)  # linear decay to 0 at 10 km
+
+
 # ── Soft attribute score ─────────────────────────────────────────────────────
 
 def _soft_attr_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
@@ -312,6 +365,8 @@ def _soft_summary(soft_facts: dict[str, Any]) -> str:
         parts.append(f"preferred features: {', '.join(soft_facts['preferred_features'])}")
     if soft_facts.get("keywords"):
         parts.append(f"search context: {', '.join(soft_facts['keywords'][:12])}")
+    if soft_facts.get("landmark_name"):
+        parts.append(f"near {soft_facts['landmark_name']} (soft proximity signal)")
     return "; ".join(parts) if parts else "general relevance"
 
 
@@ -343,6 +398,10 @@ def _formula_reason(c: dict[str, Any], soft_facts: dict[str, Any], score: float)
     dist_pt = _float(c.get("distance_public_transport"))
     if dist_pt is not None and dist_pt < 400:
         parts.append(f"Transport {int(dist_pt)}m away")
+    lm = _landmark_score(c, soft_facts)
+    landmark_name = soft_facts.get("landmark_name")
+    if lm is not None and landmark_name and lm >= 0.7:
+        parts.append(f"Close to {landmark_name}")
     if not parts:
         parts.append("Matched hard filters and general relevance")
     return ". ".join(parts) + "."
