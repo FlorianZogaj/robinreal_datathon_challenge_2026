@@ -39,6 +39,7 @@ def rank_listings(
     idf = _compute_idf(query_terms, docs)
 
     scored: list[tuple[float, dict[str, Any]]] = []
+    breakdowns: dict[str, dict[str, Any]] = {}
     for c, doc in zip(candidates, docs):
         t = _bm25(query_terms, doc, avgdl, idf)
         f = _feature_score(c, soft_facts)
@@ -46,11 +47,24 @@ def rank_listings(
         a = _soft_attr_score(c, soft_facts)
         lm = _landmark_score(c, soft_facts)
         if lm is not None:
-            # Landmark proximity gets 0.30; other 4 signals share the remaining 0.70
             total = 0.30 * lm + 0.245 * t + 0.175 * f + 0.140 * g + 0.140 * a
+            bd: dict[str, Any] = {
+                "landmark": round(lm, 4), "landmark_w": 0.30,
+                "text": round(t, 4), "text_w": 0.245,
+                "feature": round(f, 4), "feature_w": 0.175,
+                "geo": round(g, 4), "geo_w": 0.14,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.14,
+            }
         else:
             total = 0.35 * t + 0.25 * f + 0.20 * g + 0.20 * a
+            bd = {
+                "text": round(t, 4), "text_w": 0.35,
+                "feature": round(f, 4), "feature_w": 0.25,
+                "geo": round(g, 4), "geo_w": 0.20,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.20,
+            }
         scored.append((total, c))
+        breakdowns[str(c["listing_id"])] = bd
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
@@ -59,14 +73,16 @@ def rank_listings(
     if api_key and len(top_n) >= 3:
         top_candidates = [c for _, c in top_n]
         rest = scored[30:]
-        reranked = _llm_rerank(top_candidates, soft_facts, api_key)
+        reranked = _llm_rerank(top_candidates, soft_facts, api_key, breakdowns)
         return reranked + [
-            _to_result(c, score=round(s, 4), reason=_formula_reason(c, soft_facts, s))
+            _to_result(c, score=round(s, 4), reason=_formula_reason(c, soft_facts, s),
+                       breakdown=breakdowns.get(str(c["listing_id"])))
             for s, c in rest
         ]
 
     return [
-        _to_result(c, score=round(s, 4), reason=_formula_reason(c, soft_facts, s))
+        _to_result(c, score=round(s, 4), reason=_formula_reason(c, soft_facts, s),
+                   breakdown=breakdowns.get(str(c["listing_id"])))
         for s, c in scored
     ]
 
@@ -181,6 +197,15 @@ def _geo_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
 
 # ── Landmark proximity score ─────────────────────────────────────────────────
 
+def _dist_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2)
+    return R * 2 * math.asin(math.sqrt(a))
+
+
 def _landmark_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float | None:
     """Returns 0.0–1.0 proximity score if soft_facts has landmark coords, else None."""
     lat = soft_facts.get("landmark_lat")
@@ -189,12 +214,7 @@ def _landmark_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float | No
     c_lon = _float(c.get("longitude"))
     if lat is None or lon is None or c_lat is None or c_lon is None:
         return None
-    R = 6371.0
-    dlat = math.radians(c_lat - lat)
-    dlon = math.radians(c_lon - lon)
-    a = (math.sin(dlat / 2) ** 2
-         + math.cos(math.radians(lat)) * math.cos(math.radians(c_lat)) * math.sin(dlon / 2) ** 2)
-    dist_km = R * 2 * math.asin(math.sqrt(a))
+    dist_km = _dist_km(lat, lon, c_lat, c_lon)
     return max(0.0, 1.0 - dist_km / 10.0)  # linear decay to 0 at 10 km
 
 
@@ -256,12 +276,13 @@ def _llm_rerank(
     candidates: list[dict[str, Any]],
     soft_facts: dict[str, Any],
     api_key: str,
+    breakdowns: dict[str, dict[str, Any]],
 ) -> list[RankedListingResult]:
     global _rerank_client
     if _rerank_client is None:
         _rerank_client = anthropic.Anthropic(api_key=api_key)
 
-    listings_text = "\n".join(_format_listing(c) for c in candidates)
+    listings_text = "\n".join(_format_listing(c, soft_facts) for c in candidates)
     user_msg = (
         f"User query: {soft_facts.get('raw_query', '')}\n\n"
         f"Soft preferences: {_soft_summary(soft_facts)}\n\n"
@@ -300,12 +321,14 @@ def _llm_rerank(
             by_id[lid],
             score=round(float(item.get("score", 0.5)), 4),
             reason=str(item.get("reason", "Relevant to your query.")),
+            breakdown=breakdowns.get(lid),
         ))
 
     for c in candidates:
         lid = str(c["listing_id"])
         if lid not in seen:
-            results.append(_to_result(c, score=0.3, reason="Matched hard filters."))
+            results.append(_to_result(c, score=0.3, reason="Matched hard filters.",
+                                      breakdown=breakdowns.get(lid)))
 
     return results
 
@@ -324,14 +347,24 @@ def _soft_summary(soft_facts: dict[str, Any]) -> str:
     return "; ".join(parts) if parts else "general relevance"
 
 
-def _format_listing(c: dict[str, Any]) -> str:
+def _format_listing(c: dict[str, Any], soft_facts: dict[str, Any] | None = None) -> str:
     feats = ", ".join(_candidate_features(c)) or "none"
     desc = (c.get("description") or "")[:200].replace("\n", " ")
+    landmark_str = ""
+    if soft_facts:
+        lm_lat = soft_facts.get("landmark_lat")
+        lm_lon = soft_facts.get("landmark_lon")
+        lm_name = soft_facts.get("landmark_name", "landmark")
+        c_lat = _float(c.get("latitude"))
+        c_lon = _float(c.get("longitude"))
+        if lm_lat is not None and lm_lon is not None and c_lat is not None and c_lon is not None:
+            d = _dist_km(lm_lat, lm_lon, c_lat, c_lon)
+            landmark_str = f" | {d:.1f}km from {lm_name}"
     return (
         f"[{c['listing_id']}] {c.get('title', 'N/A')} | "
         f"CHF {c.get('price', '?')}/mo | {c.get('area', '?')}m² | "
         f"Rooms: {c.get('rooms', '?')} | City: {c.get('city', '?')} | "
-        f"Features: {feats} | Desc: {desc}"
+        f"Features: {feats}{landmark_str} | Desc: {desc}"
     )
 
 
@@ -372,11 +405,13 @@ def _float(v: Any) -> float | None:
         return None
 
 
-def _to_result(c: dict[str, Any], score: float = 0.5, reason: str = "Matched hard filters.") -> RankedListingResult:
+def _to_result(c: dict[str, Any], score: float = 0.5, reason: str = "Matched hard filters.",
+               breakdown: dict[str, Any] | None = None) -> RankedListingResult:
     return RankedListingResult(
         listing_id=str(c["listing_id"]),
         score=score,
         reason=reason,
+        score_breakdown=breakdown or {},
         listing=_to_listing_data(c),
     )
 

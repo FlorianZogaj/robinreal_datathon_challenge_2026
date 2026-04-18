@@ -76,6 +76,9 @@ Critical Swiss rules:
   Expand abbreviations: "HB" → "Zürich HB", "ETH" → "ETH Zürich", "EPFL" → "EPFL Lausanne".
   "radius_km" = explicit stated distance ONLY ("max 5km from ETH", "within 3km", "3 Kilometer Umkreis").
   Leave radius_km null for vague language ("near", "close to", "Nähe") — those become soft signals.
+  Setting "landmark" does NOT replace "city". Always also set "city" if the landmark is in a known Swiss city:
+  ETH / ETH Zürich → city=["Zürich"]; HB / Zürich HB → city=["Zürich"]; EPFL → city=["Lausanne"];
+  Bahnhof Bern → city=["Bern"]; Bahnhof Basel → city=["Basel"]; HB Zürich → city=["Zürich"].
 
 Multi-turn conversation rules:
 - When prior conversation context is provided, inherit all filters from the previous turn unless the current query explicitly changes or removes them
@@ -164,10 +167,10 @@ def _call_claude(
                 if radius_km is not None:
                     hard.latitude, hard.longitude = coords
                     hard.radius_km = radius_km
-                else:
-                    soft["landmark_lat"] = coords[0]
-                    soft["landmark_lon"] = coords[1]
-                    soft["landmark_name"] = landmark
+                # Always set soft signal so ranking orders by proximity within the result set
+                soft["landmark_lat"] = coords[0]
+                soft["landmark_lon"] = coords[1]
+                soft["landmark_name"] = landmark
 
     return hard, soft
 
