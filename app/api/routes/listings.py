@@ -24,12 +24,12 @@ def health() -> HealthResponse:
 
 
 @router.post("/listings", response_model=ListingsResponse)
-def listings(request: ListingsQueryRequest) -> ListingsResponse:
+async def listings(request: ListingsQueryRequest) -> ListingsResponse:
     settings = get_settings()
     session_id = request.session_id or new_session_id()
     history = get_history(session_id)
 
-    response = query_from_text(
+    response = await query_from_text(
         db_path=settings.db_path,
         query=request.query,
         limit=request.limit,
@@ -50,9 +50,9 @@ def listings(request: ListingsQueryRequest) -> ListingsResponse:
 
 
 @router.post("/listings/search/filter", response_model=ListingsResponse)
-def listings_search(request: ListingsSearchRequest) -> ListingsResponse:
+async def listings_search(request: ListingsSearchRequest) -> ListingsResponse:
     settings = get_settings()
-    return query_from_filters(
+    return await query_from_filters(
         db_path=settings.db_path,
         hard_facts=request.hard_filters,
     )

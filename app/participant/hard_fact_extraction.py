@@ -8,7 +8,7 @@ import anthropic
 
 from app.models.schemas import HardFilters
 
-_client: anthropic.Anthropic | None = None
+_client: anthropic.AsyncAnthropic | None = None
 
 # Cache keyed by (query, history_length) — shared with soft_fact_extraction.
 # Cleared on each new extraction to keep only the latest request's data.
@@ -77,11 +77,11 @@ Multi-turn conversation rules:
 """
 
 
-def _get_client() -> anthropic.Anthropic:
+def _get_client() -> anthropic.AsyncAnthropic:
     global _client
     if _client is None:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
-        _client = anthropic.Anthropic(api_key=api_key)
+        _client = anthropic.AsyncAnthropic(api_key=api_key)
     return _client
 
 
@@ -102,7 +102,7 @@ def _format_history(history: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _call_claude(
+async def _call_claude(
     query: str,
     history: list[dict[str, Any]] | None = None,
 ) -> tuple[HardFilters, dict[str, Any]]:
@@ -114,7 +114,7 @@ def _call_claude(
             f"Query: {query}\n\n"
             "Output JSON only:"
         )
-        message = client.messages.create(
+        message = await client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
             temperature=0,
@@ -180,13 +180,13 @@ def _parse_soft(s: dict[str, Any], query: str) -> dict[str, Any]:
     return result
 
 
-def extract_hard_facts(
+async def extract_hard_facts(
     query: str,
     history: list[dict[str, Any]] | None = None,
 ) -> HardFilters:
     key = (query, len(history or []))
     if key not in _extraction_cache:
-        hard, soft = _call_claude(query, history)
+        hard, soft = await _call_claude(query, history)
         _extraction_cache.clear()
         _extraction_cache[key] = (hard, soft)
     return _extraction_cache[key][0]
