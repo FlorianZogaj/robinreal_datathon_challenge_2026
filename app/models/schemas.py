@@ -63,6 +63,7 @@ class RankedListingResult(BaseModel):
     listing_id: str
     score: float
     reason: str
+    score_breakdown: dict[str, Any] = Field(default_factory=dict)
     listing: ListingData
 
 
