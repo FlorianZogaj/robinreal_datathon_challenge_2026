@@ -13,22 +13,100 @@
       color: #e8e8e8;
       height: 100dvh;
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
+      overflow: hidden;
     }
 
-    header {
-      padding: 16px 24px;
-      border-bottom: 1px solid #222;
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    #sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      background: #0a0a0a;
+      border-right: 1px solid #1e1e1e;
       display: flex;
-      align-items: center;
-      gap: 10px;
-      background: #141414;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    #sidebar-header {
+      padding: 16px 14px 12px;
+      border-bottom: 1px solid #1e1e1e;
       flex-shrink: 0;
     }
-    header .logo { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; color: #fff; }
-    header .sub  { font-size: 13px; color: #666; }
+    #sidebar-header .logo { font-size: 18px; font-weight: 700; color: #fff; }
+    #sidebar-header .sub  { font-size: 11px; color: #555; margin-top: 2px; }
 
-    /* chat thread */
+    #new-chat-btn {
+      margin: 10px 10px 6px;
+      padding: 8px 12px;
+      background: #1d6ef5;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      flex-shrink: 0;
+      transition: background .15s;
+    }
+    #new-chat-btn:hover { background: #1558cc; }
+
+    #sessions-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    .session-item {
+      padding: 9px 12px;
+      margin: 2px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      position: relative;
+      transition: background .1s;
+    }
+    .session-item:hover { background: #141414; }
+    .session-item.active { background: #1a1a1a; }
+
+    .session-title {
+      font-size: 12px;
+      color: #ccc;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding-right: 18px;
+    }
+    .session-item.active .session-title { color: #fff; }
+
+    .session-delete {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #444;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+      line-height: 1;
+      opacity: 0;
+      transition: opacity .1s, color .1s;
+    }
+    .session-item:hover .session-delete { opacity: 1; }
+    .session-delete:hover { color: #ff6b6b; }
+
+    /* ── Main area ───────────────────────────────────────────────────────── */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      height: 100dvh;
+    }
+
     #thread {
       flex: 1;
       overflow-y: auto;
@@ -38,6 +116,7 @@
       gap: 24px;
     }
 
+    /* ── Chat bubbles ────────────────────────────────────────────────────── */
     .msg-user {
       align-self: flex-end;
       background: #1d6ef5;
@@ -55,7 +134,20 @@
     .results-meta {
       font-size: 12px;
       color: #666;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
+    }
+
+    .refinement-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #0d1f0d;
+      border: 1px solid #1e3a1e;
+      color: #5a9e5a;
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      margin-bottom: 10px;
     }
 
     .cards-grid {
@@ -64,6 +156,7 @@
       gap: 14px;
     }
 
+    /* ── Cards ───────────────────────────────────────────────────────────── */
     .card {
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
@@ -151,11 +244,11 @@
     .dot:nth-child(3) { animation-delay: .4s; }
     @keyframes blink { 0%,80%,100% { opacity:.2 } 40% { opacity:1 } }
 
-    /* input bar */
+    /* ── Input bar ───────────────────────────────────────────────────────── */
     #input-bar {
       padding: 12px 16px;
       border-top: 1px solid #222;
-      background: #141414;
+      background: #0f0f0f;
       display: flex;
       gap: 10px;
       align-items: flex-end;
@@ -186,53 +279,191 @@
     #send-btn:hover { background: #1558cc; }
     #send-btn:disabled { background: #333; cursor: default; color: #666; }
 
-    .no-results {
-      color: #666; font-size: 14px; padding: 8px 0;
+    .no-results { color: #666; font-size: 14px; padding: 8px 0; }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      gap: 8px;
+      pointer-events: none;
     }
+    .empty-state .empty-icon { font-size: 40px; }
+    .empty-state .empty-text { font-size: 14px; }
   </style>
 </head>
 <body>
 
-<header>
-  <span class="logo">Robin</span>
-  <span class="sub">Real-estate search</span>
-</header>
+<div id="sidebar">
+  <div id="sidebar-header">
+    <div class="logo">Robin</div>
+    <div class="sub">Real-estate search</div>
+  </div>
+  <button id="new-chat-btn">+ New Chat</button>
+  <div id="sessions-list"></div>
+</div>
 
-<div id="thread"></div>
-
-<div id="input-bar">
-  <textarea
-    id="query-input"
-    rows="1"
-    placeholder="3-room apartment in Zurich under 2800 CHF with balcony…"
-  ></textarea>
-  <button id="send-btn">&#9658;</button>
+<div id="main">
+  <div id="thread"></div>
+  <div id="input-bar">
+    <textarea
+      id="query-input"
+      rows="1"
+      placeholder="3-room apartment in Zurich under 2800 CHF with balcony…"
+    ></textarea>
+    <button id="send-btn">&#9658;</button>
+  </div>
 </div>
 
 <script>
-  const thread = document.getElementById('thread');
-  const input  = document.getElementById('query-input');
-  const btn    = document.getElementById('send-btn');
+  const thread   = document.getElementById('thread');
+  const input    = document.getElementById('query-input');
+  const btn      = document.getElementById('send-btn');
+  const newBtn   = document.getElementById('new-chat-btn');
+  const sidelist = document.getElementById('sessions-list');
 
-  // auto-grow textarea
-  input.addEventListener('input', () => {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
-  });
+  // ── State ────────────────────────────────────────────────────────────────
+  // sessions[i] = { localId, serverId, title, messages }
+  // messages[j] = { type: 'user'|'results'|'error', content, listings, meta, prevMeta }
+  let sessions  = [];
+  let activeIdx = -1;
 
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-  });
-  btn.addEventListener('click', send);
-
-  function formatPrice(p) {
-    if (p == null) return 'Price n/a';
-    return new Intl.NumberFormat('de-CH', { style: 'currency', currency: 'CHF', maximumFractionDigits: 0 }).format(p);
+  // ── Persistence ──────────────────────────────────────────────────────────
+  function save() {
+    try {
+      localStorage.setItem('robin_sessions', JSON.stringify(sessions));
+      localStorage.setItem('robin_active', String(activeIdx));
+    } catch (_) {}
   }
 
+  function load() {
+    try {
+      const raw = localStorage.getItem('robin_sessions');
+      sessions = raw ? JSON.parse(raw) : [];
+    } catch (_) { sessions = []; }
+    const ai = localStorage.getItem('robin_active');
+    activeIdx = ai !== null ? parseInt(ai) : -1;
+    if (sessions.length === 0 || activeIdx < 0 || activeIdx >= sessions.length) {
+      createNewSession(false);
+    } else {
+      renderSidebar();
+      renderThread();
+    }
+  }
+
+  // ── Session management ───────────────────────────────────────────────────
+  function createNewSession(saveIt = true) {
+    sessions.push({ localId: crypto.randomUUID(), serverId: null, title: 'New search', messages: [] });
+    activeIdx = sessions.length - 1;
+    renderSidebar();
+    thread.innerHTML = '';
+    showEmptyState();
+    if (saveIt) save();
+    input.focus();
+  }
+
+  function switchSession(idx) {
+    if (idx === activeIdx) return;
+    activeIdx = idx;
+    renderSidebar();
+    renderThread();
+    save();
+    input.focus();
+  }
+
+  function deleteSession(idx, e) {
+    e.stopPropagation();
+    sessions.splice(idx, 1);
+    if (sessions.length === 0) {
+      createNewSession();
+      return;
+    }
+    activeIdx = Math.min(activeIdx, sessions.length - 1);
+    if (idx <= activeIdx && activeIdx > 0) activeIdx--;
+    renderSidebar();
+    renderThread();
+    save();
+  }
+
+  function currentSession() { return sessions[activeIdx]; }
+
+  // ── Sidebar rendering ────────────────────────────────────────────────────
+  function renderSidebar() {
+    sidelist.innerHTML = '';
+    sessions.forEach((s, i) => {
+      const item = document.createElement('div');
+      item.className = 'session-item' + (i === activeIdx ? ' active' : '');
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'session-title';
+      titleEl.textContent = s.title;
+      item.appendChild(titleEl);
+
+      const del = document.createElement('button');
+      del.className = 'session-delete';
+      del.textContent = '×';
+      del.title = 'Delete';
+      del.addEventListener('click', e => deleteSession(i, e));
+      item.appendChild(del);
+
+      item.addEventListener('click', () => switchSession(i));
+      sidelist.appendChild(item);
+    });
+  }
+
+  // ── Thread rendering ─────────────────────────────────────────────────────
+  function showEmptyState() {
+    const el = document.createElement('div');
+    el.className = 'empty-state';
+    el.innerHTML = '<div class="empty-icon">🏠</div><div class="empty-text">Ask anything about Swiss real estate</div>';
+    thread.appendChild(el);
+  }
+
+  function renderThread() {
+    thread.innerHTML = '';
+    const sess = currentSession();
+    if (!sess || sess.messages.length === 0) {
+      showEmptyState();
+      return;
+    }
+    for (const msg of sess.messages) {
+      if (msg.type === 'user') {
+        appendUserBubble(msg.content, false);
+      } else if (msg.type === 'results') {
+        appendResultsBlock(msg.listings, msg.meta, msg.prevMeta, false);
+      } else if (msg.type === 'error') {
+        appendErrorBubble(msg.content, false);
+      }
+    }
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  // ── Thread helpers ───────────────────────────────────────────────────────
   function appendEl(el) {
+    // Remove empty state if present
+    const es = thread.querySelector('.empty-state');
+    if (es) es.remove();
     thread.appendChild(el);
     thread.scrollTop = thread.scrollHeight;
+    return el;
+  }
+
+  function appendUserBubble(text, scroll = true) {
+    const el = document.createElement('div');
+    el.className = 'msg-user';
+    el.textContent = text;
+    if (scroll) appendEl(el); else thread.appendChild(el);
+    return el;
+  }
+
+  function appendErrorBubble(text, scroll = true) {
+    const el = document.createElement('div');
+    el.className = 'msg-error';
+    el.textContent = text;
+    if (scroll) appendEl(el); else thread.appendChild(el);
     return el;
   }
 
@@ -243,8 +474,93 @@
     return appendEl(el);
   }
 
+  function appendResultsBlock(listings, meta, prevMeta, scroll = true) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-results';
+
+    // Refinement pill — show what changed vs previous turn
+    if (prevMeta) {
+      const diffs = computeRefinements(meta, prevMeta);
+      if (diffs.length) {
+        const pill = document.createElement('div');
+        pill.className = 'refinement-pill';
+        pill.textContent = '↻ Adjusted: ' + diffs.join(' · ');
+        wrap.appendChild(pill);
+      }
+    }
+
+    const metaEl = document.createElement('div');
+    metaEl.className = 'results-meta';
+    if (listings.length) {
+      const filters = meta && meta.extracted_hard_filters ? _filtersLabel(meta.extracted_hard_filters) : '';
+      metaEl.textContent = `${listings.length} result${listings.length === 1 ? '' : 's'}${filters ? ' · ' + filters : ''}`;
+    } else {
+      metaEl.textContent = 'No listings matched your query.';
+    }
+    wrap.appendChild(metaEl);
+
+    if (listings.length) {
+      const grid = document.createElement('div');
+      grid.className = 'cards-grid';
+      listings.forEach((r, i) => grid.appendChild(buildCard(r, i)));
+      wrap.appendChild(grid);
+    }
+
+    if (scroll) appendEl(wrap); else thread.appendChild(wrap);
+    return wrap;
+  }
+
+  // ── Filters label (e.g. "Zürich · ≤2800 CHF · 3.5 rooms") ───────────────
+  function _filtersLabel(f) {
+    const parts = [];
+    if (f.city && f.city.length) parts.push(f.city.join('/'));
+    if (f.max_price != null) parts.push('≤' + formatPrice(f.max_price));
+    if (f.min_price != null) parts.push('≥' + formatPrice(f.min_price));
+    if (f.min_rooms != null && f.max_rooms != null && f.min_rooms === f.max_rooms)
+      parts.push(f.min_rooms + ' rooms');
+    else if (f.min_rooms != null) parts.push('≥' + f.min_rooms + ' rooms');
+    if (f.features && f.features.length) parts.push(f.features.join(', ').replaceAll('_', ' '));
+    return parts.join(' · ');
+  }
+
+  // ── Refinement diff ──────────────────────────────────────────────────────
+  function computeRefinements(meta, prevMeta) {
+    const curr = (meta && meta.extracted_hard_filters) || {};
+    const prev = (prevMeta && prevMeta.extracted_hard_filters) || {};
+    const diffs = [];
+
+    for (const [k, label] of [['max_price','max price'],['min_price','min price']]) {
+      if (curr[k] !== prev[k]) {
+        if (curr[k] != null) diffs.push(`${label} → CHF ${curr[k].toLocaleString()}`);
+        else diffs.push(`${label} removed`);
+      }
+    }
+    for (const [k, label] of [['min_rooms','min rooms'],['max_rooms','max rooms']]) {
+      if (curr[k] !== prev[k]) {
+        if (curr[k] != null) diffs.push(`${label} → ${curr[k]}`);
+      }
+    }
+    const prevCities = JSON.stringify((prev.city || []).sort());
+    const currCities = JSON.stringify((curr.city || []).sort());
+    if (currCities !== prevCities && curr.city && curr.city.length)
+      diffs.push('city → ' + curr.city.join(', '));
+
+    const prevFeats = JSON.stringify((prev.features || []).sort());
+    const currFeats = JSON.stringify((curr.features || []).sort());
+    if (currFeats !== prevFeats && curr.features && curr.features.length)
+      diffs.push('features → ' + curr.features.join(', ').replaceAll('_', ' '));
+
+    return diffs.slice(0, 4);
+  }
+
+  // ── Card builder ─────────────────────────────────────────────────────────
+  function formatPrice(p) {
+    if (p == null) return 'Price n/a';
+    return new Intl.NumberFormat('de-CH', { style: 'currency', currency: 'CHF', maximumFractionDigits: 0 }).format(p);
+  }
+
   function buildCard(result, index) {
-    const listing  = result.listing;
+    const listing   = result.listing;
     const imageUrls = [listing.hero_image_url, ...(listing.image_urls ?? [])].filter(Boolean);
     const unique    = [...new Set(imageUrls)].map(u => `/images/proxy?url=${encodeURIComponent(u)}`);
     let imgIdx = 0;
@@ -252,7 +568,6 @@
     const card = document.createElement('div');
     card.className = 'card';
 
-    // image section
     const imgWrap = document.createElement('div');
     imgWrap.className = 'card-img-wrap';
 
@@ -266,16 +581,6 @@
       img.src = unique[0];
       img.alt = listing.title;
       img.loading = 'lazy';
-      img.onerror = () => {
-        // skip broken images; if all fail show placeholder
-        const next = unique.slice(imgIdx + 1).findIndex(u => u !== img.src);
-        if (next !== -1) {
-          imgIdx = imgIdx + 1 + next;
-          img.src = unique[imgIdx];
-        } else {
-          imgWrap.innerHTML = '<div class="card-img-placeholder">🏠</div>';
-        }
-      };
       imgWrap.appendChild(img);
 
       if (unique.length > 1) {
@@ -309,6 +614,8 @@
           img.src = unique[imgIdx];
           counter.textContent = `${imgIdx + 1} / ${unique.length}`;
         };
+      } else {
+        img.onerror = () => { imgWrap.innerHTML = '<div class="card-img-placeholder">🏠</div>'; };
       }
     } else {
       const ph = document.createElement('div');
@@ -319,7 +626,6 @@
 
     card.appendChild(imgWrap);
 
-    // body
     const body = document.createElement('div');
     body.className = 'card-body';
 
@@ -362,15 +668,23 @@
     return card;
   }
 
+  // ── Send ─────────────────────────────────────────────────────────────────
   async function send() {
     const query = input.value.trim();
     if (!query) return;
 
-    // user bubble
-    const userBubble = document.createElement('div');
-    userBubble.className = 'msg-user';
-    userBubble.textContent = query;
-    appendEl(userBubble);
+    const sess = currentSession();
+
+    // Remove empty state
+    const es = thread.querySelector('.empty-state');
+    if (es) es.remove();
+
+    appendUserBubble(query);
+    sess.messages.push({ type: 'user', content: query });
+
+    // Find previous results meta for refinement diff
+    const prevResultsMsg = [...sess.messages].reverse().find(m => m.type === 'results');
+    const prevMeta = prevResultsMsg ? prevResultsMsg.meta : null;
 
     input.value = '';
     input.style.height = 'auto';
@@ -379,54 +693,70 @@
     const typing = makeTyping();
 
     try {
+      const body = { query, limit: 20 };
+      if (sess.serverId) body.session_id = sess.serverId;
+
       const res = await fetch('/listings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, limit: 20 }),
+        body: JSON.stringify(body),
       });
 
       typing.remove();
 
       if (!res.ok) {
-        const err = document.createElement('div');
-        err.className = 'msg-error';
-        err.textContent = `Error ${res.status}: ${res.statusText}`;
-        appendEl(err);
+        const errText = `Error ${res.status}: ${res.statusText}`;
+        appendErrorBubble(errText);
+        sess.messages.push({ type: 'error', content: errText });
+        save();
         return;
       }
 
       const data = await res.json();
-      const listings = data.listings ?? [];
 
-      const wrap = document.createElement('div');
-      wrap.className = 'msg-results';
-
-      const meta = document.createElement('div');
-      meta.className = 'results-meta';
-      meta.textContent = listings.length
-        ? `${listings.length} result${listings.length === 1 ? '' : 's'}`
-        : 'No listings matched your query.';
-      wrap.appendChild(meta);
-
-      if (listings.length) {
-        const grid = document.createElement('div');
-        grid.className = 'cards-grid';
-        listings.forEach((r, i) => grid.appendChild(buildCard(r, i)));
-        wrap.appendChild(grid);
+      // Sync server-assigned session ID
+      if (data.session_id && !sess.serverId) {
+        sess.serverId = data.session_id;
       }
 
-      appendEl(wrap);
+      // Set session title from first query
+      if (sess.title === 'New search') {
+        sess.title = query.length > 38 ? query.slice(0, 36) + '…' : query;
+        renderSidebar();
+      }
+
+      const listings = data.listings ?? [];
+      const meta = data.meta || {};
+
+      appendResultsBlock(listings, meta, prevMeta);
+      sess.messages.push({ type: 'results', listings, meta, prevMeta });
+      save();
+
     } catch (err) {
       typing.remove();
-      const errEl = document.createElement('div');
-      errEl.className = 'msg-error';
-      errEl.textContent = `Network error: ${err.message}`;
-      appendEl(errEl);
+      const errText = `Network error: ${err.message}`;
+      appendErrorBubble(errText);
+      sess.messages.push({ type: 'error', content: errText });
+      save();
     } finally {
       btn.disabled = false;
       input.focus();
     }
   }
+
+  // ── Input events ─────────────────────────────────────────────────────────
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  btn.addEventListener('click', send);
+  newBtn.addEventListener('click', () => createNewSession());
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  load();
 </script>
 </body>
 </html>

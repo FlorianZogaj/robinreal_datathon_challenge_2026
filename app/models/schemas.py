@@ -29,6 +29,7 @@ class ListingsQueryRequest(BaseModel):
     query: str = Field(min_length=1)
     limit: int = Field(default=25, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
+    session_id: str | None = None
 
 
 class ListingsSearchRequest(BaseModel):
@@ -68,6 +69,7 @@ class RankedListingResult(BaseModel):
 class ListingsResponse(BaseModel):
     listings: list[RankedListingResult]
     meta: dict[str, Any] = Field(default_factory=dict)
+    session_id: str = ""
 
 
 class HealthResponse(BaseModel):

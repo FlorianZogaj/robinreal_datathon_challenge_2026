@@ -10,8 +10,9 @@ from app.models.schemas import HardFilters
 
 _client: anthropic.Anthropic | None = None
 
-# Shared cache: query → (HardFilters, soft_dict). Cleared on each new query.
-_extraction_cache: dict[str, tuple[HardFilters, dict[str, Any]]] = {}
+# Cache keyed by (query, history_length) — shared with soft_fact_extraction.
+# Cleared on each new extraction to keep only the latest request's data.
+_extraction_cache: dict[tuple[str, int], tuple[HardFilters, dict[str, Any]]] = {}
 
 _SYSTEM_PROMPT = """\
 You are a Swiss real-estate query parser. Extract BOTH hard constraints (must-have filters) \
@@ -67,6 +68,12 @@ Critical Swiss rules:
 - Never invent constraints. When in doubt, omit (null) rather than guess.
 - Mention of neighborhood (Kreis 4, Kreis 5, Gundeldingen, Oerlikon) → add to keywords, do NOT set city unless you also know the city
 - RENT is the default offer_type for Swiss listings if not specified; only set SALE if explicitly stated
+
+Multi-turn conversation rules:
+- When prior conversation context is provided, inherit all filters from the previous turn unless the current query explicitly changes or removes them
+- Resolve relative references: "cheaper" → lower max_price; "larger" → raise min_rooms; "same city but quieter" → keep city, add quietness
+- "show me more" / "andere zeigen" → keep all previous filters unchanged
+- If the user removes a constraint ("no price limit"), set that field to null
 """
 
 
@@ -78,9 +85,35 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-def _call_claude(query: str) -> tuple[HardFilters, dict[str, Any]]:
+def _format_history(history: list[dict[str, Any]]) -> str:
+    if not history:
+        return ""
+    lines = ["Prior conversation context (inherit and update these filters):\n"]
+    for i, turn in enumerate(history, 1):
+        hard = turn.get("hard_filters") or {}
+        hard_parts = [
+            f"{k}={v}" for k, v in hard.items()
+            if k not in ("limit", "offset", "sort_by") and v is not None
+        ]
+        hard_str = ", ".join(hard_parts) if hard_parts else "no hard filters"
+        lines.append(f'[{i}] User: "{turn["query"]}"')
+        lines.append(f"     Resolved to: {hard_str}")
+    lines.append("\n")
+    return "\n".join(lines)
+
+
+def _call_claude(
+    query: str,
+    history: list[dict[str, Any]] | None = None,
+) -> tuple[HardFilters, dict[str, Any]]:
     try:
         client = _get_client()
+        history_text = _format_history(history or [])
+        user_content = (
+            f"{history_text}"
+            f"Query: {query}\n\n"
+            "Output JSON only:"
+        )
         message = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
@@ -95,7 +128,7 @@ def _call_claude(query: str) -> tuple[HardFilters, dict[str, Any]]:
             messages=[
                 {
                     "role": "user",
-                    "content": f"Query: {query}\n\nOutput JSON only:",
+                    "content": user_content,
                 }
             ],
         )
@@ -147,9 +180,13 @@ def _parse_soft(s: dict[str, Any], query: str) -> dict[str, Any]:
     return result
 
 
-def extract_hard_facts(query: str) -> HardFilters:
-    if query not in _extraction_cache:
-        hard, soft = _call_claude(query)
+def extract_hard_facts(
+    query: str,
+    history: list[dict[str, Any]] | None = None,
+) -> HardFilters:
+    key = (query, len(history or []))
+    if key not in _extraction_cache:
+        hard, soft = _call_claude(query, history)
         _extraction_cache.clear()
-        _extraction_cache[query] = (hard, soft)
-    return _extraction_cache[query][0]
+        _extraction_cache[key] = (hard, soft)
+    return _extraction_cache[key][0]

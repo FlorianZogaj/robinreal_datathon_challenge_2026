@@ -10,9 +10,34 @@ from app.participant.ranking import rank_listings
 from app.participant.soft_fact_extraction import extract_soft_facts
 from app.participant.soft_filtering import filter_soft_facts
 
+_SOFT_FLOAT_FIELDS = [
+    "brightness", "modernity", "quietness", "spaciousness", "views",
+    "family_friendly", "commute_priority", "value_priority", "nature_proximity",
+]
+
 
 def filter_hard_facts(db_path: Path, hard_facts: HardFilters) -> list[dict[str, Any]]:
     return search_listings(db_path, to_hard_filter_params(hard_facts))
+
+
+def _merge_soft_with_history(
+    soft_facts: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Carry forward soft signals from the last turn unless the current query set them."""
+    if not history:
+        return soft_facts
+    prev_soft = history[-1].get("soft_facts") or {}
+    merged = dict(soft_facts)
+    for field in _SOFT_FLOAT_FIELDS:
+        if merged.get(field) is None and field in prev_soft:
+            merged[field] = prev_soft[field]
+    # Merge preferred_features: union of old and new
+    prev_feats = set(prev_soft.get("preferred_features") or [])
+    curr_feats = set(merged.get("preferred_features") or [])
+    if prev_feats and not curr_feats:
+        merged["preferred_features"] = list(prev_feats)
+    return merged
 
 
 def query_from_text(
@@ -21,11 +46,13 @@ def query_from_text(
     query: str,
     limit: int,
     offset: int,
+    history: list[dict[str, Any]] | None = None,
 ) -> ListingsResponse:
-    hard_facts = extract_hard_facts(query)
+    hard_facts = extract_hard_facts(query, history)
     hard_facts.limit = limit
     hard_facts.offset = offset
-    soft_facts = extract_soft_facts(query)
+    soft_facts = extract_soft_facts(query, history)
+    soft_facts = _merge_soft_with_history(soft_facts, history or [])
     candidates = filter_hard_facts(db_path, hard_facts)
     candidates = filter_soft_facts(candidates, soft_facts)
     return ListingsResponse(

@@ -7,6 +7,7 @@ from fastapi.responses import Response
 from app.config import get_settings
 from app.core.s3 import presign_image_urls
 from app.harness.search_service import query_from_filters, query_from_text
+from app.harness.sessions import append_turn, get_history, new_session_id
 from app.models.schemas import (
     HealthResponse,
     ListingsQueryRequest,
@@ -25,12 +26,27 @@ def health() -> HealthResponse:
 @router.post("/listings", response_model=ListingsResponse)
 def listings(request: ListingsQueryRequest) -> ListingsResponse:
     settings = get_settings()
-    return query_from_text(
+    session_id = request.session_id or new_session_id()
+    history = get_history(session_id)
+
+    response = query_from_text(
         db_path=settings.db_path,
         query=request.query,
         limit=request.limit,
         offset=request.offset,
+        history=history,
     )
+
+    append_turn(
+        session_id=session_id,
+        query=request.query,
+        hard_filters=response.meta.get("extracted_hard_filters", {}),
+        soft_facts=response.meta.get("extracted_soft_facts", {}),
+        result_count=len(response.listings),
+    )
+
+    response.session_id = session_id
+    return response
 
 
 @router.post("/listings/search/filter", response_model=ListingsResponse)
