@@ -126,7 +126,7 @@ The dataset contains fields such as:
 - structured feature flags where available
 - image urls and a local image bundle
 
-You will also receive evaluation-style examples containing user queries, hard-criteria matches, and a soft ranking over 20 candidate listings.
+You will also receive evaluation-style examples containing user queries.
 
 ## What You Need to Build
 
