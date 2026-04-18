@@ -13,7 +13,7 @@ from app.core.image_search import image_similarity_scores
 from app.core.s3 import presign_image_urls
 from app.models.schemas import ListingData, RankedListingResult
 
-_rerank_client: anthropic.Anthropic | None = None
+_rerank_client: anthropic.AsyncAnthropic | None = None
 
 _RERANK_SYSTEM = """\
 You are a real-estate relevance judge for Swiss listings. Given a user query and candidate listings, \
@@ -27,7 +27,7 @@ Output ONLY a JSON array, sorted by score descending:
 """
 
 
-def rank_listings(
+async def rank_listings(
     candidates: list[dict[str, Any]],
     soft_facts: dict[str, Any],
 ) -> list[RankedListingResult]:
@@ -69,7 +69,7 @@ def rank_listings(
     if api_key and len(top_n) >= 3:
         top_candidates = [c for _, c in top_n]
         rest = scored[30:]
-        reranked = _llm_rerank(top_candidates, soft_facts, api_key)
+        reranked = await _llm_rerank(top_candidates, soft_facts, api_key)
         return reranked + [
             _to_result(c, score=round(s, 4), reason=_formula_reason(c, soft_facts, s))
             for s, c in rest
@@ -243,14 +243,14 @@ def _soft_attr_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
 
 # ── LLM re-ranking ───────────────────────────────────────────────────────────
 
-def _llm_rerank(
+async def _llm_rerank(
     candidates: list[dict[str, Any]],
     soft_facts: dict[str, Any],
     api_key: str,
 ) -> list[RankedListingResult]:
     global _rerank_client
     if _rerank_client is None:
-        _rerank_client = anthropic.Anthropic(api_key=api_key)
+        _rerank_client = anthropic.AsyncAnthropic(api_key=api_key)
 
     listings_text = "\n".join(_format_listing(c) for c in candidates)
     user_msg = (
@@ -261,7 +261,7 @@ def _llm_rerank(
     )
 
     try:
-        message = _rerank_client.messages.create(
+        message = await _rerank_client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
             temperature=0,
@@ -310,6 +310,8 @@ def _soft_summary(soft_facts: dict[str, Any]) -> str:
             parts.append(f"{k.replace('_', ' ')}={v:.1f}")
     if soft_facts.get("preferred_features"):
         parts.append(f"preferred features: {', '.join(soft_facts['preferred_features'])}")
+    if soft_facts.get("keywords"):
+        parts.append(f"search context: {', '.join(soft_facts['keywords'][:12])}")
     return "; ".join(parts) if parts else "general relevance"
 
 

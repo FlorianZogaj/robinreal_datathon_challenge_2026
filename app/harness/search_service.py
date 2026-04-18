@@ -37,10 +37,15 @@ def _merge_soft_with_history(
     curr_feats = set(merged.get("preferred_features") or [])
     if prev_feats and not curr_feats:
         merged["preferred_features"] = list(prev_feats)
+    # Merge keywords: union so BM25 and reranker retain turn-1 descriptive terms
+    prev_kw = set(prev_soft.get("keywords") or [])
+    curr_kw = set(merged.get("keywords") or [])
+    if prev_kw - curr_kw:
+        merged["keywords"] = list(curr_kw | prev_kw)
     return merged
 
 
-def query_from_text(
+async def query_from_text(
     *,
     db_path: Path,
     query: str,
@@ -48,15 +53,15 @@ def query_from_text(
     offset: int,
     history: list[dict[str, Any]] | None = None,
 ) -> ListingsResponse:
-    hard_facts = extract_hard_facts(query, history)
+    hard_facts = await extract_hard_facts(query, history)
     hard_facts.limit = limit
     hard_facts.offset = offset
-    soft_facts = extract_soft_facts(query, history)
+    soft_facts = await extract_soft_facts(query, history)
     soft_facts = _merge_soft_with_history(soft_facts, history or [])
     candidates = filter_hard_facts(db_path, hard_facts)
     candidates = filter_soft_facts(candidates, soft_facts)
     return ListingsResponse(
-        listings=rank_listings(candidates, soft_facts),
+        listings=await rank_listings(candidates, soft_facts),
         meta={
             "extracted_hard_filters": hard_facts.model_dump(exclude_none=True),
             "extracted_soft_facts": {k: v for k, v in soft_facts.items() if k != "raw_query"},
@@ -65,17 +70,17 @@ def query_from_text(
     )
 
 
-def query_from_filters(
+async def query_from_filters(
     *,
     db_path: Path,
     hard_facts: HardFilters | None,
 ) -> ListingsResponse:
     structured_hard_facts = hard_facts or HardFilters()
-    soft_facts = extract_soft_facts("")
+    soft_facts = await extract_soft_facts("")
     candidates = filter_hard_facts(db_path, structured_hard_facts)
     candidates = filter_soft_facts(candidates, soft_facts)
     return ListingsResponse(
-        listings=rank_listings(candidates, soft_facts),
+        listings=await rank_listings(candidates, soft_facts),
         meta={},
     )
 
