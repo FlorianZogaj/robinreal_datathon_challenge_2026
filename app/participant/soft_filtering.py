@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
+
+_captions: dict[str, str] | None = None
+
+
+def _get_captions() -> dict[str, str]:
+    global _captions
+    if _captions is None:
+        p = Path(__file__).parent.parent.parent / "raw_data" / "image_captions.json"
+        _captions = json.loads(p.read_text()) if p.exists() else {}
+    return _captions
 
 
 def filter_soft_facts(
@@ -22,9 +34,11 @@ def filter_soft_facts(
     # Only trigger on terms longer than 4 chars to avoid false positives.
     long_negatives = [n.lower() for n in negative_signals if len(n) > 4]
     if long_negatives:
+        captions = _get_captions()
         filtered = []
         for c in result:
-            doc = f"{c.get('title', '')} {c.get('description', '')}".lower()
+            cap = captions.get(str(c.get("listing_id", "")), "")
+            doc = f"{c.get('title', '')} {c.get('description', '')} {cap}".lower()
             if not any(neg in doc for neg in long_negatives):
                 filtered.append(c)
         if filtered:
