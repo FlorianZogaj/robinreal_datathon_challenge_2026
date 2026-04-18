@@ -9,6 +9,7 @@ from typing import Any
 
 import anthropic
 
+from app.core.image_search import image_similarity_scores
 from app.core.s3 import presign_image_urls
 from app.models.schemas import ListingData, RankedListingResult
 
@@ -38,13 +39,27 @@ def rank_listings(
     avgdl = sum(len(d) for d in docs) / max(len(docs), 1)
     idf = _compute_idf(query_terms, docs)
 
+    # Image similarity scores (no-op if embeddings not yet available)
+    jina_key = os.getenv("JINA_API_KEY")
+    raw_query = soft_facts.get("raw_query", "")
+    img_scores: dict[str, float] = {}
+    if jina_key and raw_query:
+        listing_ids = [str(c["listing_id"]) for c in candidates]
+        img_scores = image_similarity_scores(raw_query, listing_ids, jina_key)
+
+    use_images = bool(img_scores)
+
     scored: list[tuple[float, dict[str, Any]]] = []
     for c, doc in zip(candidates, docs):
         t = _bm25(query_terms, doc, avgdl, idf)
         f = _feature_score(c, soft_facts)
         g = _geo_score(c, soft_facts)
         a = _soft_attr_score(c, soft_facts)
-        total = 0.35 * t + 0.25 * f + 0.20 * g + 0.20 * a
+        if use_images:
+            i = img_scores.get(str(c["listing_id"]), 0.3)
+            total = 0.28 * t + 0.20 * f + 0.16 * g + 0.16 * a + 0.20 * i
+        else:
+            total = 0.35 * t + 0.25 * f + 0.20 * g + 0.20 * a
         scored.append((total, c))
 
     scored.sort(key=lambda x: x[0], reverse=True)

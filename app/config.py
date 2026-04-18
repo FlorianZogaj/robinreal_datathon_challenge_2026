@@ -36,6 +36,7 @@ class Settings:
     s3_region: str
     s3_prefix: str
     anthropic_api_key: str | None
+    jina_api_key: str | None
 
 
 def get_settings() -> Settings:
@@ -49,4 +50,5 @@ def get_settings() -> Settings:
         s3_region=os.getenv("LISTINGS_S3_REGION", "eu-central-2"),
         s3_prefix=os.getenv("LISTINGS_S3_PREFIX", "prod"),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+        jina_api_key=os.getenv("JINA_API_KEY"),
     )
