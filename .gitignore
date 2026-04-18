@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 
 data/
+raw_data/
 *.db
 *.sqlite
 *.sqlite3
