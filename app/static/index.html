@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Robin Search</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f0f0f;
+      color: #e8e8e8;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #222;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #141414;
+      flex-shrink: 0;
+    }
+    header .logo { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; color: #fff; }
+    header .sub  { font-size: 13px; color: #666; }
+
+    /* chat thread */
+    #thread {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .msg-user {
+      align-self: flex-end;
+      background: #1d6ef5;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 18px 18px 4px 18px;
+      max-width: 72%;
+      font-size: 15px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+
+    .msg-results { align-self: stretch; }
+
+    .results-meta {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color .15s, transform .15s;
+      display: flex;
+      flex-direction: column;
+    }
+    .card:hover { border-color: #1d6ef5; transform: translateY(-2px); }
+
+    .card-img-wrap {
+      position: relative;
+      aspect-ratio: 16/9;
+      background: #111;
+      overflow: hidden;
+    }
+    .card-img-wrap img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .card-img-placeholder {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      color: #444; font-size: 32px;
+    }
+    .img-nav {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: rgba(0,0,0,.55); border: none; color: #fff;
+      font-size: 20px; line-height: 1; padding: 4px 8px;
+      border-radius: 6px; cursor: pointer; opacity: 0;
+      transition: opacity .15s;
+    }
+    .card-img-wrap:hover .img-nav { opacity: 1; }
+    .img-nav-prev { left: 6px; }
+    .img-nav-next { right: 6px; }
+    .img-counter {
+      position: absolute; bottom: 6px; right: 8px;
+      background: rgba(0,0,0,.6); color: #fff;
+      font-size: 11px; padding: 2px 6px; border-radius: 10px;
+    }
+    .rank-badge {
+      position: absolute; top: 8px; left: 8px;
+      background: #1d6ef5; color: #fff;
+      font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 10px;
+    }
+
+    .card-body { padding: 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .card-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; }
+    .card-location { font-size: 12px; color: #888; }
+    .card-price { font-size: 14px; font-weight: 600; color: #4da6ff; }
+    .card-reason { font-size: 12px; color: #666; line-height: 1.4; margin-top: 2px; }
+    .card-features {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;
+    }
+    .feat-tag {
+      background: #252525; color: #aaa;
+      font-size: 10px; padding: 2px 7px; border-radius: 8px;
+      text-transform: capitalize;
+    }
+
+    .msg-error {
+      align-self: flex-start;
+      background: #2a1010;
+      border: 1px solid #5a2020;
+      color: #ff6b6b;
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 13px;
+      max-width: 72%;
+    }
+
+    .typing-indicator {
+      align-self: flex-start;
+      display: flex; align-items: center; gap: 5px;
+      padding: 12px 16px;
+      background: #1a1a1a; border-radius: 18px;
+      color: #666; font-size: 13px;
+    }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #555; animation: blink 1.2s infinite; }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%,80%,100% { opacity:.2 } 40% { opacity:1 } }
+
+    /* input bar */
+    #input-bar {
+      padding: 12px 16px;
+      border-top: 1px solid #222;
+      background: #141414;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+    #query-input {
+      flex: 1;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 12px;
+      color: #e8e8e8;
+      font-size: 15px;
+      padding: 10px 14px;
+      resize: none;
+      outline: none;
+      max-height: 140px;
+      overflow-y: auto;
+      line-height: 1.4;
+      font-family: inherit;
+    }
+    #query-input:focus { border-color: #1d6ef5; }
+    #query-input::placeholder { color: #555; }
+    #send-btn {
+      background: #1d6ef5; border: none; border-radius: 10px;
+      color: #fff; font-size: 16px; padding: 10px 16px;
+      cursor: pointer; flex-shrink: 0; transition: background .15s;
+    }
+    #send-btn:hover { background: #1558cc; }
+    #send-btn:disabled { background: #333; cursor: default; color: #666; }
+
+    .no-results {
+      color: #666; font-size: 14px; padding: 8px 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">Robin</span>
+  <span class="sub">Real-estate search</span>
+</header>
+
+<div id="thread"></div>
+
+<div id="input-bar">
+  <textarea
+    id="query-input"
+    rows="1"
+    placeholder="3-room apartment in Zurich under 2800 CHF with balcony…"
+  ></textarea>
+  <button id="send-btn">&#9658;</button>
+</div>
+
+<script>
+  const thread = document.getElementById('thread');
+  const input  = document.getElementById('query-input');
+  const btn    = document.getElementById('send-btn');
+
+  // auto-grow textarea
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  btn.addEventListener('click', send);
+
+  function formatPrice(p) {
+    if (p == null) return 'Price n/a';
+    return new Intl.NumberFormat('de-CH', { style: 'currency', currency: 'CHF', maximumFractionDigits: 0 }).format(p);
+  }
+
+  function appendEl(el) {
+    thread.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
+    return el;
+  }
+
+  function makeTyping() {
+    const el = document.createElement('div');
+    el.className = 'typing-indicator';
+    el.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:4px">Searching…</span>';
+    return appendEl(el);
+  }
+
+  function buildCard(result, index) {
+    const listing  = result.listing;
+    const imageUrls = [listing.hero_image_url, ...(listing.image_urls ?? [])].filter(Boolean);
+    const unique    = [...new Set(imageUrls)];
+    let imgIdx = 0;
+
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    // image section
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'card-img-wrap';
+
+    const rankBadge = document.createElement('span');
+    rankBadge.className = 'rank-badge';
+    rankBadge.textContent = `#${index + 1}`;
+    imgWrap.appendChild(rankBadge);
+
+    if (unique.length) {
+      const img = document.createElement('img');
+      img.src = unique[0];
+      img.alt = listing.title;
+      img.loading = 'lazy';
+      imgWrap.appendChild(img);
+
+      if (unique.length > 1) {
+        const counter = document.createElement('span');
+        counter.className = 'img-counter';
+        counter.textContent = `1 / ${unique.length}`;
+        imgWrap.appendChild(counter);
+
+        const prev = document.createElement('button');
+        prev.className = 'img-nav img-nav-prev';
+        prev.textContent = '‹';
+        prev.addEventListener('click', e => { e.stopPropagation(); navigate(-1); });
+
+        const next = document.createElement('button');
+        next.className = 'img-nav img-nav-next';
+        next.textContent = '›';
+        next.addEventListener('click', e => { e.stopPropagation(); navigate(1); });
+
+        imgWrap.appendChild(prev);
+        imgWrap.appendChild(next);
+
+        function navigate(delta) {
+          imgIdx = (imgIdx + delta + unique.length) % unique.length;
+          img.src = unique[imgIdx];
+          counter.textContent = `${imgIdx + 1} / ${unique.length}`;
+        }
+      }
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'card-img-placeholder';
+      ph.textContent = '🏠';
+      imgWrap.appendChild(ph);
+    }
+
+    card.appendChild(imgWrap);
+
+    // body
+    const body = document.createElement('div');
+    body.className = 'card-body';
+
+    const title = document.createElement('div');
+    title.className = 'card-title';
+    title.textContent = listing.title;
+    body.appendChild(title);
+
+    const loc = document.createElement('div');
+    loc.className = 'card-location';
+    loc.textContent = [listing.city, listing.canton].filter(Boolean).join(', ') || '—';
+    body.appendChild(loc);
+
+    const price = document.createElement('div');
+    price.className = 'card-price';
+    price.textContent = `${formatPrice(listing.price_chf)}${listing.rooms ? ` · ${listing.rooms} rooms` : ''}`;
+    body.appendChild(price);
+
+    if (result.reason) {
+      const reason = document.createElement('div');
+      reason.className = 'card-reason';
+      reason.textContent = result.reason;
+      body.appendChild(reason);
+    }
+
+    const features = (listing.features ?? []).slice(0, 5);
+    if (features.length) {
+      const feats = document.createElement('div');
+      feats.className = 'card-features';
+      features.forEach(f => {
+        const tag = document.createElement('span');
+        tag.className = 'feat-tag';
+        tag.textContent = f.replaceAll('_', ' ');
+        feats.appendChild(tag);
+      });
+      body.appendChild(feats);
+    }
+
+    card.appendChild(body);
+    return card;
+  }
+
+  async function send() {
+    const query = input.value.trim();
+    if (!query) return;
+
+    // user bubble
+    const userBubble = document.createElement('div');
+    userBubble.className = 'msg-user';
+    userBubble.textContent = query;
+    appendEl(userBubble);
+
+    input.value = '';
+    input.style.height = 'auto';
+    btn.disabled = true;
+
+    const typing = makeTyping();
+
+    try {
+      const res = await fetch('/listings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, limit: 20 }),
+      });
+
+      typing.remove();
+
+      if (!res.ok) {
+        const err = document.createElement('div');
+        err.className = 'msg-error';
+        err.textContent = `Error ${res.status}: ${res.statusText}`;
+        appendEl(err);
+        return;
+      }
+
+      const data = await res.json();
+      const listings = data.listings ?? [];
+
+      const wrap = document.createElement('div');
+      wrap.className = 'msg-results';
+
+      const meta = document.createElement('div');
+      meta.className = 'results-meta';
+      meta.textContent = listings.length
+        ? `${listings.length} result${listings.length === 1 ? '' : 's'}`
+        : 'No listings matched your query.';
+      wrap.appendChild(meta);
+
+      if (listings.length) {
+        const grid = document.createElement('div');
+        grid.className = 'cards-grid';
+        listings.forEach((r, i) => grid.appendChild(buildCard(r, i)));
+        wrap.appendChild(grid);
+      }
+
+      appendEl(wrap);
+    } catch (err) {
+      typing.remove();
+      const errEl = document.createElement('div');
+      errEl.className = 'msg-error';
+      errEl.textContent = `Network error: ${err.message}`;
+      appendEl(errEl);
+    } finally {
+      btn.disabled = false;
+      input.focus();
+    }
+  }
+</script>
+</body>
+</html>
