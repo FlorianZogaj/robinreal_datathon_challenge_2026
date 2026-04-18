@@ -377,6 +377,108 @@
     }
     .empty-state .empty-icon { font-size: 40px; }
     .empty-state .empty-text { font-size: 14px; }
+
+    /* ── Detail Modal ────────────────────────────────────────────────────── */
+    #modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.65);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    #modal-overlay.open { display: flex; }
+
+    #modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 780px;
+      max-height: 88vh;
+      overflow-y: auto;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 12px; right: 12px;
+      z-index: 10;
+      background: rgba(0,0,0,.5);
+      border: none;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 20px;
+      width: 34px; height: 34px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    .modal-close:hover { background: rgba(0,0,0,.85); }
+
+    .modal-gallery {
+      position: relative;
+      aspect-ratio: 16/9;
+      background: var(--img-bg);
+      border-radius: 16px 16px 0 0;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .modal-gallery img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .modal-gallery .img-nav { opacity: 0.75; font-size: 26px; padding: 6px 12px; }
+    .modal-gallery:hover .img-nav { opacity: 1; }
+    .modal-gallery-placeholder {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--img-placeholder); font-size: 56px;
+    }
+
+    .modal-body { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+
+    .modal-title { font-size: 20px; font-weight: 700; color: var(--text-logo); line-height: 1.3; }
+
+    .modal-match { font-size: 12px; color: var(--text-reason); line-height: 1.5; }
+
+    .modal-address { font-size: 14px; color: var(--text-location); }
+
+    .modal-stats { display: flex; flex-wrap: wrap; gap: 10px; }
+    .stat-box {
+      background: var(--bg-feat);
+      border-radius: 8px;
+      padding: 8px 14px;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+    .stat-value { font-size: 15px; font-weight: 600; color: var(--text-logo); }
+    .stat-value.price-val { color: var(--price); }
+
+    .modal-section-title {
+      font-size: 11px; font-weight: 600; color: var(--text-sub);
+      text-transform: uppercase; letter-spacing: .6px;
+    }
+
+    .modal-description { font-size: 14px; color: var(--text); line-height: 1.65; white-space: pre-wrap; }
+
+    .modal-features { display: flex; flex-wrap: wrap; gap: 6px; }
+    .modal-feat-tag {
+      background: var(--bg-feat); color: var(--text-feat);
+      font-size: 12px; padding: 4px 10px; border-radius: 20px; text-transform: capitalize;
+    }
+
+    .modal-links { display: flex; flex-wrap: wrap; gap: 10px; }
+    .modal-link {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 8px 16px; border-radius: 8px;
+      font-size: 13px; font-weight: 500; text-decoration: none;
+      transition: opacity .15s;
+    }
+    .modal-link:hover { opacity: .8; }
+    .modal-link-primary { background: #1d6ef5; color: #fff; }
+    .modal-link-secondary { background: var(--bg-feat); color: var(--text); border: 1px solid var(--border-card); }
   </style>
 </head>
 <body>
@@ -403,6 +505,10 @@
     ></textarea>
     <button id="send-btn">&#9658;</button>
   </div>
+</div>
+
+<div id="modal-overlay">
+  <div id="modal"></div>
 </div>
 
 <script>
@@ -749,6 +855,7 @@
     }
 
     card.appendChild(body);
+    card.addEventListener('click', () => showModal(result));
     return card;
   }
 
@@ -820,6 +927,183 @@
       input.focus();
     }
   }
+
+  // ── Detail Modal ─────────────────────────────────────────────────────────
+  const modalOverlay = document.getElementById('modal-overlay');
+  const modalEl      = document.getElementById('modal');
+
+  function showModal(result) {
+    const listing = result.listing;
+    const imageUrls = [listing.hero_image_url, ...(listing.image_urls ?? [])].filter(Boolean);
+    const unique = [...new Set(imageUrls)].map(u => `/images/proxy?url=${encodeURIComponent(u)}`);
+    let imgIdx = 0;
+
+    modalEl.innerHTML = '';
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'modal-close';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', closeModal);
+    modalEl.appendChild(closeBtn);
+
+    // Gallery
+    const gallery = document.createElement('div');
+    gallery.className = 'modal-gallery';
+    if (unique.length) {
+      const img = document.createElement('img');
+      img.src = unique[0];
+      img.alt = listing.title;
+      gallery.appendChild(img);
+      if (unique.length > 1) {
+        const counter = document.createElement('span');
+        counter.className = 'img-counter';
+        counter.textContent = `1 / ${unique.length}`;
+        gallery.appendChild(counter);
+        const prev = document.createElement('button');
+        prev.className = 'img-nav img-nav-prev';
+        prev.textContent = '‹';
+        prev.addEventListener('click', () => navigate(-1));
+        const next = document.createElement('button');
+        next.className = 'img-nav img-nav-next';
+        next.textContent = '›';
+        next.addEventListener('click', () => navigate(1));
+        gallery.appendChild(prev);
+        gallery.appendChild(next);
+        function navigate(delta) {
+          imgIdx = (imgIdx + delta + unique.length) % unique.length;
+          img.src = unique[imgIdx];
+          counter.textContent = `${imgIdx + 1} / ${unique.length}`;
+        }
+        img.onerror = () => {
+          unique.splice(imgIdx, 1);
+          if (!unique.length) { gallery.innerHTML = '<div class="modal-gallery-placeholder">🏠</div>'; return; }
+          imgIdx = Math.min(imgIdx, unique.length - 1);
+          img.src = unique[imgIdx];
+          counter.textContent = `${imgIdx + 1} / ${unique.length}`;
+        };
+      } else {
+        img.onerror = () => { gallery.innerHTML = '<div class="modal-gallery-placeholder">🏠</div>'; };
+      }
+    } else {
+      gallery.innerHTML = '<div class="modal-gallery-placeholder">🏠</div>';
+    }
+    modalEl.appendChild(gallery);
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+
+    // Title
+    const titleEl = document.createElement('div');
+    titleEl.className = 'modal-title';
+    titleEl.textContent = listing.title;
+    body.appendChild(titleEl);
+
+    // Match score + reason
+    if (result.reason) {
+      const matchEl = document.createElement('div');
+      matchEl.className = 'modal-match';
+      matchEl.textContent = `Match: ${(result.score * 100).toFixed(0)}%  ·  ${result.reason}`;
+      body.appendChild(matchEl);
+    }
+
+    // Address
+    const addrParts = [listing.street, listing.postal_code, listing.city, listing.canton].filter(Boolean);
+    if (addrParts.length) {
+      const addr = document.createElement('div');
+      addr.className = 'modal-address';
+      addr.textContent = '📍 ' + addrParts.join(', ');
+      body.appendChild(addr);
+    }
+
+    // Stats
+    const stats = document.createElement('div');
+    stats.className = 'modal-stats';
+    function addStat(label, value, cls) {
+      if (value == null || value === '') return;
+      const box = document.createElement('div');
+      box.className = 'stat-box';
+      const lbl = document.createElement('div');
+      lbl.className = 'stat-label';
+      lbl.textContent = label;
+      const val = document.createElement('div');
+      val.className = 'stat-value' + (cls ? ' ' + cls : '');
+      val.textContent = value;
+      box.append(lbl, val);
+      stats.appendChild(box);
+    }
+    addStat('Price', listing.price_chf ? formatPrice(listing.price_chf) + '/mo' : null, 'price-val');
+    addStat('Rooms', listing.rooms);
+    addStat('Area', listing.living_area_sqm ? listing.living_area_sqm + ' m²' : null);
+    addStat('Available', listing.available_from);
+    addStat('Offer', listing.offer_type);
+    addStat('Category', listing.object_category);
+    addStat('Type', listing.object_type);
+    if (stats.children.length) body.appendChild(stats);
+
+    // Features
+    if (listing.features && listing.features.length) {
+      const ft = document.createElement('div');
+      ft.className = 'modal-section-title';
+      ft.textContent = 'Features';
+      body.appendChild(ft);
+      const feats = document.createElement('div');
+      feats.className = 'modal-features';
+      listing.features.forEach(f => {
+        const tag = document.createElement('span');
+        tag.className = 'modal-feat-tag';
+        tag.textContent = f.replaceAll('_', ' ');
+        feats.appendChild(tag);
+      });
+      body.appendChild(feats);
+    }
+
+    // Description
+    if (listing.description) {
+      const dt = document.createElement('div');
+      dt.className = 'modal-section-title';
+      dt.textContent = 'Description';
+      body.appendChild(dt);
+      const desc = document.createElement('div');
+      desc.className = 'modal-description';
+      desc.textContent = listing.description;
+      body.appendChild(desc);
+    }
+
+    // Links
+    const links = document.createElement('div');
+    links.className = 'modal-links';
+    if (listing.original_listing_url) {
+      const a = document.createElement('a');
+      a.className = 'modal-link modal-link-primary';
+      a.href = listing.original_listing_url;
+      a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = 'Open original listing ↗';
+      links.appendChild(a);
+    }
+    if (listing.latitude && listing.longitude) {
+      const a = document.createElement('a');
+      a.className = 'modal-link modal-link-secondary';
+      a.href = `https://www.openstreetmap.org/?mlat=${listing.latitude}&mlon=${listing.longitude}&zoom=16`;
+      a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = 'View on map ↗';
+      links.appendChild(a);
+    }
+    if (links.children.length) body.appendChild(links);
+
+    modalEl.appendChild(body);
+    modalOverlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeModal() {
+    modalOverlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
   // ── Input events ─────────────────────────────────────────────────────────
   input.addEventListener('input', () => {
