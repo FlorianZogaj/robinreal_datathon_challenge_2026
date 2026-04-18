@@ -199,22 +199,13 @@ Examples of things your system may need to handle:
 
 Submit the following:
 
-1. A working prototype
-2. A short technical write-up
-3. A demo, notebook, API, or app that shows the full result flow
-4. A description of your ranking logic
-5. A short discussion of failure cases, limitations, or open problems
-
-Your technical write-up should cover:
-
-- how you extract hard constraints
-- how you score or rank soft preferences
-- which models, heuristics, or external systems you use
-- how you would extend the system with user history for the bonus task
+1. A working prototype reachable at at public HTTPs API route
+2. A demo, or notebook, API, or app that shows the full result flow
+3. your final presentation
 
 ## Evaluation
 
-Submissions will be evaluated using a mix of automatic scoring and human judgment.
+Submissions will be evaluated using a mix of automatic scoring and human judgment and peer review.
 
 ### Automatic leaderboard
 
@@ -222,9 +213,7 @@ The ranking core may be evaluated with metrics such as:
 
 - hard-filter precision
 - constraint satisfaction rate
-- `Recall@K`
-- `NDCG@10`
-- `MRR`
+- ranking
 
 Important principle:
 
@@ -242,7 +231,7 @@ The jury will look at:
 
 ### Peer feedback
 
-Peer testing may also play a role, especially for:
+Peer testing also plays a role, especially for:
 
 - perceived usefulness
 - search experience
@@ -262,7 +251,7 @@ Peer testing may also play a role, especially for:
 - Do not rely on semantic similarity alone.
 - Do not rely on structured filtering alone.
 - Hybrid systems are often stronger than single-method systems.
-- Make your ranking behavior explainable enough that a human can understand why the top results appeared so you can debug it.
+- You can make your ranking behavior explainable enough that a human can understand why the top results appeared so you can debug it.
 - If you attempt the bonus task, think carefully about how to use user history without overfitting to one past action, how you can inject it.
 
 ## Success Criteria
