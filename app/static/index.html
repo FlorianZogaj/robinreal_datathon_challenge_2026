@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,10 +7,77 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── Theme tokens ────────────────────────────────────────────────────── */
+    :root {
+      --bg:                  #0f0f0f;
+      --bg-sidebar:          #0a0a0a;
+      --bg-card:             #1a1a1a;
+      --bg-input:            #1e1e1e;
+      --bg-typing:           #1a1a1a;
+      --bg-feat:             #252525;
+      --border:              #1e1e1e;
+      --border-card:         #2a2a2a;
+      --border-input:        #333;
+      --border-bar:          #222;
+      --text:                #e8e8e8;
+      --text-logo:           #fff;
+      --text-sub:            #555;
+      --text-session:        #ccc;
+      --text-session-active: #fff;
+      --text-location:       #888;
+      --text-reason:         #666;
+      --text-meta:           #666;
+      --text-muted:          #555;
+      --text-dim:            #333;
+      --text-del:            #444;
+      --text-feat:           #aaa;
+      --price:               #4da6ff;
+      --img-bg:              #111;
+      --img-placeholder:     #444;
+      --hover-session:       #141414;
+      --active-session:      #1a1a1a;
+      --refinement-bg:       #0d1f0d;
+      --refinement-border:   #1e3a1e;
+      --refinement-text:     #5a9e5a;
+    }
+
+    html[data-theme="light"] {
+      --bg:                  #f4f4f5;
+      --bg-sidebar:          #fafafa;
+      --bg-card:             #ffffff;
+      --bg-input:            #ffffff;
+      --bg-typing:           #ebebeb;
+      --bg-feat:             #efefef;
+      --border:              #e0e0e0;
+      --border-card:         #e4e4e7;
+      --border-input:        #d1d1d6;
+      --border-bar:          #e0e0e0;
+      --text:                #18181b;
+      --text-logo:           #18181b;
+      --text-sub:            #888;
+      --text-session:        #52525b;
+      --text-session-active: #18181b;
+      --text-location:       #71717a;
+      --text-reason:         #71717a;
+      --text-meta:           #71717a;
+      --text-muted:          #a1a1aa;
+      --text-dim:            #c4c4c8;
+      --text-del:            #c4c4c8;
+      --text-feat:           #52525b;
+      --price:               #1d6ef5;
+      --img-bg:              #f0f0f0;
+      --img-placeholder:     #bbb;
+      --hover-session:       #f0f0f0;
+      --active-session:      #e8e8e8;
+      --refinement-bg:       #f0fdf4;
+      --refinement-border:   #bbf7d0;
+      --refinement-text:     #166534;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f0f0f;
-      color: #e8e8e8;
+      background: var(--bg);
+      color: var(--text);
       height: 100dvh;
       display: flex;
       flex-direction: row;
@@ -21,20 +88,37 @@
     #sidebar {
       width: 240px;
       flex-shrink: 0;
-      background: #0a0a0a;
-      border-right: 1px solid #1e1e1e;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       height: 100dvh;
     }
 
     #sidebar-header {
-      padding: 16px 14px 12px;
-      border-bottom: 1px solid #1e1e1e;
+      padding: 14px 14px 12px;
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
-    #sidebar-header .logo { font-size: 18px; font-weight: 700; color: #fff; }
-    #sidebar-header .sub  { font-size: 11px; color: #555; margin-top: 2px; }
+    #sidebar-header .logo { font-size: 18px; font-weight: 700; color: var(--text-logo); }
+    #sidebar-header .sub  { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+
+    #theme-btn {
+      background: none;
+      border: 1px solid var(--border-input);
+      border-radius: 6px;
+      color: var(--text-sub);
+      font-size: 14px;
+      padding: 4px 7px;
+      cursor: pointer;
+      flex-shrink: 0;
+      line-height: 1;
+      transition: color .15s, border-color .15s;
+    }
+    #theme-btn:hover { color: var(--text); border-color: var(--text-session); }
 
     #new-chat-btn {
       margin: 10px 10px 6px;
@@ -66,18 +150,18 @@
       position: relative;
       transition: background .1s;
     }
-    .session-item:hover { background: #141414; }
-    .session-item.active { background: #1a1a1a; }
+    .session-item:hover { background: var(--hover-session); }
+    .session-item.active { background: var(--active-session); }
 
     .session-title {
       font-size: 12px;
-      color: #ccc;
+      color: var(--text-session);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       padding-right: 18px;
     }
-    .session-item.active .session-title { color: #fff; }
+    .session-item.active .session-title { color: var(--text-session-active); }
 
     .session-delete {
       position: absolute;
@@ -86,7 +170,7 @@
       transform: translateY(-50%);
       background: none;
       border: none;
-      color: #444;
+      color: var(--text-del);
       font-size: 14px;
       cursor: pointer;
       padding: 2px 4px;
@@ -133,7 +217,7 @@
 
     .results-meta {
       font-size: 12px;
-      color: #666;
+      color: var(--text-meta);
       margin-bottom: 8px;
     }
 
@@ -141,9 +225,9 @@
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      background: #0d1f0d;
-      border: 1px solid #1e3a1e;
-      color: #5a9e5a;
+      background: var(--refinement-bg);
+      border: 1px solid var(--refinement-border);
+      color: var(--refinement-text);
       font-size: 11px;
       padding: 3px 10px;
       border-radius: 12px;
@@ -158,8 +242,8 @@
 
     /* ── Cards ───────────────────────────────────────────────────────────── */
     .card {
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
       border-radius: 12px;
       overflow: hidden;
       cursor: pointer;
@@ -172,7 +256,7 @@
     .card-img-wrap {
       position: relative;
       aspect-ratio: 16/9;
-      background: #111;
+      background: var(--img-bg);
       overflow: hidden;
     }
     .card-img-wrap img {
@@ -183,7 +267,7 @@
     .card-img-placeholder {
       width: 100%; height: 100%;
       display: flex; align-items: center; justify-content: center;
-      color: #444; font-size: 32px;
+      color: var(--img-placeholder); font-size: 32px;
     }
     .img-nav {
       position: absolute; top: 50%; transform: translateY(-50%);
@@ -208,15 +292,15 @@
     }
 
     .card-body { padding: 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-    .card-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; }
-    .card-location { font-size: 12px; color: #888; }
-    .card-price { font-size: 14px; font-weight: 600; color: #4da6ff; }
-    .card-reason { font-size: 12px; color: #666; line-height: 1.4; margin-top: 2px; }
+    .card-title { font-size: 14px; font-weight: 600; color: var(--text-logo); line-height: 1.3; }
+    .card-location { font-size: 12px; color: var(--text-location); }
+    .card-price { font-size: 14px; font-weight: 600; color: var(--price); }
+    .card-reason { font-size: 12px; color: var(--text-reason); line-height: 1.4; margin-top: 2px; }
     .card-features {
       display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;
     }
     .feat-tag {
-      background: #252525; color: #aaa;
+      background: var(--bg-feat); color: var(--text-feat);
       font-size: 10px; padding: 2px 7px; border-radius: 8px;
       text-transform: capitalize;
     }
@@ -236,10 +320,10 @@
       align-self: flex-start;
       display: flex; align-items: center; gap: 5px;
       padding: 12px 16px;
-      background: #1a1a1a; border-radius: 18px;
-      color: #666; font-size: 13px;
+      background: var(--bg-typing); border-radius: 18px;
+      color: var(--text-reason); font-size: 13px;
     }
-    .dot { width: 6px; height: 6px; border-radius: 50%; background: #555; animation: blink 1.2s infinite; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: blink 1.2s infinite; }
     .dot:nth-child(2) { animation-delay: .2s; }
     .dot:nth-child(3) { animation-delay: .4s; }
     @keyframes blink { 0%,80%,100% { opacity:.2 } 40% { opacity:1 } }
@@ -247,8 +331,8 @@
     /* ── Input bar ───────────────────────────────────────────────────────── */
     #input-bar {
       padding: 12px 16px;
-      border-top: 1px solid #222;
-      background: #0f0f0f;
+      border-top: 1px solid var(--border-bar);
+      background: var(--bg);
       display: flex;
       gap: 10px;
       align-items: flex-end;
@@ -256,10 +340,10 @@
     }
     #query-input {
       flex: 1;
-      background: #1e1e1e;
-      border: 1px solid #333;
+      background: var(--bg-input);
+      border: 1px solid var(--border-input);
       border-radius: 12px;
-      color: #e8e8e8;
+      color: var(--text);
       font-size: 15px;
       padding: 10px 14px;
       resize: none;
@@ -270,16 +354,16 @@
       font-family: inherit;
     }
     #query-input:focus { border-color: #1d6ef5; }
-    #query-input::placeholder { color: #555; }
+    #query-input::placeholder { color: var(--text-muted); }
     #send-btn {
       background: #1d6ef5; border: none; border-radius: 10px;
       color: #fff; font-size: 16px; padding: 10px 16px;
       cursor: pointer; flex-shrink: 0; transition: background .15s;
     }
     #send-btn:hover { background: #1558cc; }
-    #send-btn:disabled { background: #333; cursor: default; color: #666; }
+    #send-btn:disabled { background: var(--border-card); cursor: default; color: var(--text-muted); }
 
-    .no-results { color: #666; font-size: 14px; padding: 8px 0; }
+    .no-results { color: var(--text-meta); font-size: 14px; padding: 8px 0; }
 
     .empty-state {
       flex: 1;
@@ -287,7 +371,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: #333;
+      color: var(--text-dim);
       gap: 8px;
       pointer-events: none;
     }
@@ -299,8 +383,11 @@
 
 <div id="sidebar">
   <div id="sidebar-header">
-    <div class="logo">Robin</div>
-    <div class="sub">Real-estate search</div>
+    <div>
+      <div class="logo">Robin</div>
+      <div class="sub">Real-estate search</div>
+    </div>
+    <button id="theme-btn" title="Toggle light/dark mode">☀</button>
   </div>
   <button id="new-chat-btn">+ New Chat</button>
   <div id="sessions-list"></div>
@@ -324,10 +411,21 @@
   const btn      = document.getElementById('send-btn');
   const newBtn   = document.getElementById('new-chat-btn');
   const sidelist = document.getElementById('sessions-list');
+  const themeBtn = document.getElementById('theme-btn');
+
+  // ── Theme ────────────────────────────────────────────────────────────────
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    themeBtn.textContent = theme === 'dark' ? '☀' : '☾';
+    localStorage.setItem('robin_theme', theme);
+  }
+
+  themeBtn.addEventListener('click', () => {
+    const curr = document.documentElement.getAttribute('data-theme') || 'dark';
+    applyTheme(curr === 'dark' ? 'light' : 'dark');
+  });
 
   // ── State ────────────────────────────────────────────────────────────────
-  // sessions[i] = { localId, serverId, title, messages }
-  // messages[j] = { type: 'user'|'results'|'error', content, listings, meta, prevMeta }
   let sessions  = [];
   let activeIdx = -1;
 
@@ -340,6 +438,7 @@
   }
 
   function load() {
+    applyTheme(localStorage.getItem('robin_theme') || 'dark');
     try {
       const raw = localStorage.getItem('robin_sessions');
       sessions = raw ? JSON.parse(raw) : [];
@@ -377,10 +476,7 @@
   function deleteSession(idx, e) {
     e.stopPropagation();
     sessions.splice(idx, 1);
-    if (sessions.length === 0) {
-      createNewSession();
-      return;
-    }
+    if (sessions.length === 0) { createNewSession(); return; }
     activeIdx = Math.min(activeIdx, sessions.length - 1);
     if (idx <= activeIdx && activeIdx > 0) activeIdx--;
     renderSidebar();
@@ -425,10 +521,7 @@
   function renderThread() {
     thread.innerHTML = '';
     const sess = currentSession();
-    if (!sess || sess.messages.length === 0) {
-      showEmptyState();
-      return;
-    }
+    if (!sess || sess.messages.length === 0) { showEmptyState(); return; }
     for (const msg of sess.messages) {
       if (msg.type === 'user') {
         appendUserBubble(msg.content, false);
@@ -443,7 +536,6 @@
 
   // ── Thread helpers ───────────────────────────────────────────────────────
   function appendEl(el) {
-    // Remove empty state if present
     const es = thread.querySelector('.empty-state');
     if (es) es.remove();
     thread.appendChild(el);
@@ -478,7 +570,6 @@
     const wrap = document.createElement('div');
     wrap.className = 'msg-results';
 
-    // Refinement pill — show what changed vs previous turn
     if (prevMeta) {
       const diffs = computeRefinements(meta, prevMeta);
       if (diffs.length) {
@@ -510,7 +601,6 @@
     return wrap;
   }
 
-  // ── Filters label (e.g. "Zürich · ≤2800 CHF · 3.5 rooms") ───────────────
   function _filtersLabel(f) {
     const parts = [];
     if (f.city && f.city.length) parts.push(f.city.join('/'));
@@ -523,12 +613,10 @@
     return parts.join(' · ');
   }
 
-  // ── Refinement diff ──────────────────────────────────────────────────────
   function computeRefinements(meta, prevMeta) {
     const curr = (meta && meta.extracted_hard_filters) || {};
     const prev = (prevMeta && prevMeta.extracted_hard_filters) || {};
     const diffs = [];
-
     for (const [k, label] of [['max_price','max price'],['min_price','min price']]) {
       if (curr[k] !== prev[k]) {
         if (curr[k] != null) diffs.push(`${label} → CHF ${curr[k].toLocaleString()}`);
@@ -536,20 +624,16 @@
       }
     }
     for (const [k, label] of [['min_rooms','min rooms'],['max_rooms','max rooms']]) {
-      if (curr[k] !== prev[k]) {
-        if (curr[k] != null) diffs.push(`${label} → ${curr[k]}`);
-      }
+      if (curr[k] !== prev[k] && curr[k] != null) diffs.push(`${label} → ${curr[k]}`);
     }
     const prevCities = JSON.stringify((prev.city || []).sort());
     const currCities = JSON.stringify((curr.city || []).sort());
     if (currCities !== prevCities && curr.city && curr.city.length)
       diffs.push('city → ' + curr.city.join(', '));
-
     const prevFeats = JSON.stringify((prev.features || []).sort());
     const currFeats = JSON.stringify((curr.features || []).sort());
     if (currFeats !== prevFeats && curr.features && curr.features.length)
       diffs.push('features → ' + curr.features.join(', ').replaceAll('_', ' '));
-
     return diffs.slice(0, 4);
   }
 
@@ -674,15 +758,12 @@
     if (!query) return;
 
     const sess = currentSession();
-
-    // Remove empty state
     const es = thread.querySelector('.empty-state');
     if (es) es.remove();
 
     appendUserBubble(query);
     sess.messages.push({ type: 'user', content: query });
 
-    // Find previous results meta for refinement diff
     const prevResultsMsg = [...sess.messages].reverse().find(m => m.type === 'results');
     const prevMeta = prevResultsMsg ? prevResultsMsg.meta : null;
 
@@ -714,12 +795,8 @@
 
       const data = await res.json();
 
-      // Sync server-assigned session ID
-      if (data.session_id && !sess.serverId) {
-        sess.serverId = data.session_id;
-      }
+      if (data.session_id && !sess.serverId) sess.serverId = data.session_id;
 
-      // Set session title from first query
       if (sess.title === 'New search') {
         sess.title = query.length > 38 ? query.slice(0, 36) + '…' : query;
         renderSidebar();
@@ -755,7 +832,7 @@
   btn.addEventListener('click', send);
   newBtn.addEventListener('click', () => createNewSession());
 
-  // ── Boot ──────────────────────────────────────────────────────────────────
+  // ── Boot ─────────────────────────────────────────────────────────────────
   load();
 </script>
 </body>
