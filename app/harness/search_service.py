@@ -30,7 +30,11 @@ def query_from_text(
     candidates = filter_soft_facts(candidates, soft_facts)
     return ListingsResponse(
         listings=rank_listings(candidates, soft_facts),
-        meta={},
+        meta={
+            "extracted_hard_filters": hard_facts.model_dump(exclude_none=True),
+            "extracted_soft_facts": {k: v for k, v in soft_facts.items() if k != "raw_query"},
+            "candidates_after_hard_filter": len(candidates),
+        },
     )
 
 
