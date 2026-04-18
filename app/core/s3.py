@@ -7,6 +7,7 @@ from urllib.parse import quote
 import json
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.config import get_settings
@@ -31,7 +32,7 @@ def presign_image_urls(urls: list[str], expires_in: int = 3600) -> list[str]:
         client = boto3.client(
             "s3",
             region_name=settings.s3_region,
-            endpoint_url=f"https://s3.{settings.s3_region}.amazonaws.com",
+            config=Config(s3={"addressing_style": "virtual"}),
         )
         result = []
         for url in urls:

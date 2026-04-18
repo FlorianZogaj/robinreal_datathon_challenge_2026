@@ -246,7 +246,7 @@
   function buildCard(result, index) {
     const listing  = result.listing;
     const imageUrls = [listing.hero_image_url, ...(listing.image_urls ?? [])].filter(Boolean);
-    const unique    = [...new Set(imageUrls)];
+    const unique    = [...new Set(imageUrls)].map(u => `/images/proxy?url=${encodeURIComponent(u)}`);
     let imgIdx = 0;
 
     const card = document.createElement('div');
@@ -266,6 +266,16 @@
       img.src = unique[0];
       img.alt = listing.title;
       img.loading = 'lazy';
+      img.onerror = () => {
+        // skip broken images; if all fail show placeholder
+        const next = unique.slice(imgIdx + 1).findIndex(u => u !== img.src);
+        if (next !== -1) {
+          imgIdx = imgIdx + 1 + next;
+          img.src = unique[imgIdx];
+        } else {
+          imgWrap.innerHTML = '<div class="card-img-placeholder">🏠</div>';
+        }
+      };
       imgWrap.appendChild(img);
 
       if (unique.length > 1) {
@@ -292,6 +302,13 @@
           img.src = unique[imgIdx];
           counter.textContent = `${imgIdx + 1} / ${unique.length}`;
         }
+        img.onerror = () => {
+          unique.splice(imgIdx, 1);
+          if (!unique.length) { imgWrap.innerHTML = '<div class="card-img-placeholder">🏠</div>'; return; }
+          imgIdx = Math.min(imgIdx, unique.length - 1);
+          img.src = unique[imgIdx];
+          counter.textContent = `${imgIdx + 1} / ${unique.length}`;
+        };
       }
     } else {
       const ph = document.createElement('div');
