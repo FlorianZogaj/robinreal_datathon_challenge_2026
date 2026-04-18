@@ -470,6 +470,12 @@
       font-size: 12px; padding: 4px 10px; border-radius: 20px; text-transform: capitalize;
     }
 
+    .modal-breakdown { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .modal-breakdown td { padding: 3px 8px 3px 0; color: var(--text-reason); }
+    .modal-breakdown td:first-child { color: var(--text-sub); text-transform: capitalize; min-width: 130px; }
+    .modal-breakdown td:last-child { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+    .modal-breakdown tr.breakdown-total td { border-top: 1px solid var(--border-card); padding-top: 5px; color: var(--text); font-weight: 600; }
+
     .modal-links { display: flex; flex-wrap: wrap; gap: 10px; }
     .modal-link {
       display: inline-flex; align-items: center; gap: 5px;
@@ -690,7 +696,7 @@
     const metaEl = document.createElement('div');
     metaEl.className = 'results-meta';
     if (listings.length) {
-      const filters = meta && meta.extracted_hard_filters ? _filtersLabel(meta.extracted_hard_filters) : '';
+      const filters = meta && meta.extracted_hard_filters ? _filtersLabel(meta.extracted_hard_filters, meta.extracted_soft_facts) : '';
       metaEl.textContent = `${listings.length} result${listings.length === 1 ? '' : 's'}${filters ? ' · ' + filters : ''}`;
     } else {
       metaEl.textContent = 'No listings matched your query.';
@@ -708,7 +714,7 @@
     return wrap;
   }
 
-  function _filtersLabel(f) {
+  function _filtersLabel(f, soft) {
     const parts = [];
     if (f.city && f.city.length) parts.push(f.city.join('/'));
     if (f.max_price != null) parts.push('≤' + formatPrice(f.max_price));
@@ -717,6 +723,10 @@
       parts.push(f.min_rooms + ' rooms');
     else if (f.min_rooms != null) parts.push('≥' + f.min_rooms + ' rooms');
     if (f.features && f.features.length) parts.push(f.features.join(', ').replaceAll('_', ' '));
+    if (f.radius_km != null) {
+      const name = soft?.landmark_name ?? (f.latitude != null ? `${f.latitude.toFixed(3)}, ${f.longitude.toFixed(3)}` : null);
+      parts.push('within ' + f.radius_km + 'km' + (name ? ' of ' + name : ''));
+    }
     return parts.join(' · ');
   }
 
@@ -1007,6 +1017,37 @@
       matchEl.className = 'modal-match';
       matchEl.textContent = `Match: ${(result.score * 100).toFixed(0)}%  ·  ${result.reason}`;
       body.appendChild(matchEl);
+    }
+
+    // Score breakdown
+    const bd = result.score_breakdown;
+    if (bd && Object.keys(bd).length) {
+      const bdTitle = document.createElement('div');
+      bdTitle.className = 'modal-section-title';
+      bdTitle.textContent = 'Score Breakdown';
+      body.appendChild(bdTitle);
+
+      const LABELS = { landmark: 'Landmark proximity', text: 'Text match', feature: 'Features',
+                       geo: 'Geo (distances)', soft_attr: 'Soft attributes' };
+      const signals = ['landmark', 'text', 'feature', 'geo', 'soft_attr'].filter(k => bd[k] != null);
+
+      const table = document.createElement('table');
+      table.className = 'modal-breakdown';
+      let total = 0;
+      for (const k of signals) {
+        const score = bd[k];
+        const w = bd[k + '_w'];
+        const contrib = score * w;
+        total += contrib;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${LABELS[k]}</td><td>${score.toFixed(2)} × ${(w*100).toFixed(1)}%</td><td>= ${(contrib*100).toFixed(1)}%</td>`;
+        table.appendChild(tr);
+      }
+      const totalRow = document.createElement('tr');
+      totalRow.className = 'breakdown-total';
+      totalRow.innerHTML = `<td>Total</td><td></td><td>${(total*100).toFixed(1)}%</td>`;
+      table.appendChild(totalRow);
+      body.appendChild(table);
     }
 
     // Address
