@@ -1,16 +1,58 @@
 from __future__ import annotations
 
+import logging
+import re
 from pathlib import Path
 from urllib.parse import quote
 import json
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 from app.config import get_settings
 from app.db import get_connection
 
+logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+_S3_URL_RE = re.compile(
+    r"https://([^.]+)\.s3[^/]*/(.+)"
+)
+
+
+def presign_image_urls(urls: list[str], expires_in: int = 3600) -> list[str]:
+    """Convert S3 URLs to presigned URLs. Returns originals on any error."""
+    settings = get_settings()
+    if not urls:
+        return urls
+
+    try:
+        client = boto3.client(
+            "s3",
+            region_name=settings.s3_region,
+            endpoint_url=f"https://s3.{settings.s3_region}.amazonaws.com",
+        )
+        result = []
+        for url in urls:
+            m = _S3_URL_RE.match(url)
+            if not m:
+                result.append(url)
+                continue
+            key = m.group(2)
+            try:
+                presigned = client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": settings.s3_bucket, "Key": key},
+                    ExpiresIn=expires_in,
+                )
+                result.append(presigned)
+            except (BotoCoreError, ClientError):
+                result.append(url)
+        return result
+    except Exception:
+        logger.debug("S3 presign skipped (no credentials or config)")
+        return urls
 
 
 def get_image_urls_by_listing_id(*, db_path: Path, listing_id: str) -> list[str]:

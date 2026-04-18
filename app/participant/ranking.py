@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.s3 import presign_image_urls
 from app.models.schemas import ListingData, RankedListingResult
 
 
@@ -10,20 +11,54 @@ def rank_listings(
     candidates: list[dict[str, Any]],
     soft_facts: dict[str, Any],
 ) -> list[RankedListingResult]:
-    # Intentionally stubbed. Teams can replace this with a scoring or
-    # reranking stage that uses the soft_facts payload.
-    return [
-        RankedListingResult(
-            listing_id=str(candidate["listing_id"]),
-            score=1.0,
-            reason="Matched hard filters; soft ranking stub.",
-            listing=_to_listing_data(candidate),
+    """
+    Basic ranking that scores candidates based on soft keyword matches.
+    """
+    keywords = soft_facts.get("keywords", [])
+    ranked_results = []
+
+    for candidate in candidates:
+        score = 1.0  # Base score for surviving the hard filter
+        match_reasons = []
+
+        # Combine text fields to search for soft keywords
+        text_to_search = (
+            str(candidate.get("title", "")).lower() + " " + 
+            str(candidate.get("description", "")).lower() + " " + 
+            str(candidate.get("features", "")).lower()
         )
-        for candidate in candidates
-    ]
+
+        # Boost score for each matched soft keyword
+        for kw in keywords:
+            if kw in text_to_search:
+                score += 0.5
+                match_reasons.append(kw)
+
+        # Formulate a dynamic reason string for debugging/UI
+        reason = "Matched hard filters."
+        if match_reasons:
+            reason += f" Soft match boost for: {', '.join(match_reasons)}."
+
+        ranked_results.append(
+            RankedListingResult(
+                listing_id=str(candidate["listing_id"]),
+                score=score,
+                reason=reason,
+                listing=_to_listing_data(candidate),
+            )
+        )
+
+    # Sort the results from highest score to lowest
+    ranked_results.sort(key=lambda x: x.score, reverse=True)
+    
+    return ranked_results
 
 
 def _to_listing_data(candidate: dict[str, Any]) -> ListingData:
+    raw_urls = _coerce_image_urls(candidate.get("image_urls")) or []
+    signed_urls = presign_image_urls(raw_urls) if raw_urls else []
+    hero = signed_urls[0] if signed_urls else candidate.get("hero_image_url")
+
     return ListingData(
         id=str(candidate["listing_id"]),
         title=candidate["title"],
@@ -38,8 +73,8 @@ def _to_listing_data(candidate: dict[str, Any]) -> ListingData:
         rooms=candidate.get("rooms"),
         living_area_sqm=_coerce_int(candidate.get("area")),
         available_from=candidate.get("available_from"),
-        image_urls=_coerce_image_urls(candidate.get("image_urls")),
-        hero_image_url=candidate.get("hero_image_url"),
+        image_urls=signed_urls,
+        hero_image_url=hero,
         original_listing_url=candidate.get("original_url"),
         features=candidate.get("features") or [],
         offer_type=candidate.get("offer_type"),
