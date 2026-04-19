@@ -5,6 +5,7 @@ import math
 import os
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import anthropic
@@ -14,6 +15,16 @@ from app.core.s3 import presign_image_urls
 from app.models.schemas import ListingData, RankedListingResult
 
 _rerank_client: anthropic.AsyncAnthropic | None = None
+
+_captions: dict[str, str] | None = None
+_CAPTIONS_PATH = Path(__file__).parent.parent.parent / "raw_data" / "image_captions.json"
+
+
+def _load_captions() -> dict[str, str]:
+    global _captions
+    if _captions is None:
+        _captions = json.loads(_CAPTIONS_PATH.read_text()) if _CAPTIONS_PATH.exists() else {}
+    return _captions
 
 _RERANK_SYSTEM = """\
 You are a real-estate relevance judge for Swiss listings. Given a user query and candidate listings, \
@@ -49,10 +60,17 @@ async def rank_listings(
         img_scores = image_similarity_scores(raw_query, listing_ids)
     use_images = bool(img_scores)
 
+    # Caption BM25 (no-op if image_captions.json not present)
+    cap_docs = [_caption_tokens(c) for c in candidates]
+    cap_avgdl = sum(len(d) for d in cap_docs) / max(len(cap_docs), 1)
+    cap_idf = _compute_idf(query_terms, cap_docs)
+
     scored: list[tuple[float, dict[str, Any]]] = []
     breakdowns: dict[str, dict[str, Any]] = {}
-    for c, doc in zip(candidates, docs):
-        t = _bm25(query_terms, doc, avgdl, idf)
+    for c, doc, cap_doc in zip(candidates, docs, cap_docs):
+        t_text = _bm25(query_terms, doc, avgdl, idf)
+        t_cap = _bm25(query_terms, cap_doc, cap_avgdl, cap_idf)
+        t = 0.8 * t_text + 0.2 * t_cap
         f = _feature_score(c, soft_facts)
         g = _geo_score(c, soft_facts)
         a, a_detail = _soft_attr_score(c, soft_facts, candidate_stats)
@@ -145,6 +163,11 @@ def _tokenize(text: str) -> list[str]:
 def _doc_tokens(c: dict[str, Any]) -> list[str]:
     parts = [c.get("title") or "", c.get("description") or ""]
     return _tokenize(" ".join(parts))
+
+
+def _caption_tokens(c: dict[str, Any]) -> list[str]:
+    cap = _load_captions().get(str(c.get("listing_id", "")), "")
+    return _tokenize(cap)
 
 
 def _compute_idf(query_terms: list[str], docs: list[list[str]]) -> dict[str, float]:
@@ -490,10 +513,12 @@ def _format_listing(c: dict[str, Any], soft_facts: dict[str, Any] | None = None,
             signals.append(f"school {int(d_sc)}m")
 
     signals_str = (" | " + ", ".join(signals)) if signals else ""
+    cap = _load_captions().get(str(c.get("listing_id", "")), "")
+    cap_str = (" | Image: " + cap[:150].replace("\n", " ")) if cap else ""
     return (
         f"[{c['listing_id']}] {c.get('title', 'N/A')} | "
         f"CHF {c.get('price', '?')}/mo | {c.get('rooms', '?')} rooms | {c.get('area', '?')}m² | "
-        f"City: {c.get('city', '?')} | Features: {feats}{signals_str} | Desc: {desc}"
+        f"City: {c.get('city', '?')} | Features: {feats}{signals_str} | Desc: {desc}{cap_str}"
     )
 
 
@@ -504,9 +529,13 @@ def _formula_reason(c: dict[str, Any], soft_facts: dict[str, Any], score: float)
     keywords = soft_facts.get("keywords") or []
     if keywords:
         doc = f"{c.get('title', '')} {c.get('description', '')}".lower()
+        cap = _load_captions().get(str(c.get("listing_id", "")), "").lower()
         matched_kw = [kw for kw in keywords[:8] if kw.lower() in doc]
+        matched_cap = [kw for kw in keywords[:8] if kw.lower() in cap and kw.lower() not in doc]
         if matched_kw:
             parts.append(f"Keywords matched: {', '.join(matched_kw[:3])}")
+        if matched_cap:
+            parts.append(f"Image shows: {', '.join(matched_cap[:3])}")
     wanted = set(soft_facts.get("preferred_features") or [])
     matched_feats = wanted & _candidate_features(c)
     if matched_feats:
