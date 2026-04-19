@@ -1094,6 +1094,9 @@
 
       const LABELS = { landmark: 'Landmark proximity', text: 'Text match', feature: 'Features',
                        geo: 'Geo (distances)', soft_attr: 'Soft attributes' };
+      const SA_LABELS = { brightness: 'Brightness', modernity: 'Modernity', family: 'Family-friendly',
+                          value: 'Value / price', quietness: 'Quietness', spaciousness: 'Spaciousness',
+                          views: 'Views', nature_proximity: 'Nature proximity' };
       const signals = ['landmark', 'text', 'feature', 'geo', 'soft_attr'].filter(k => bd[k] != null);
 
       const table = document.createElement('table');
@@ -1107,6 +1110,15 @@
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${LABELS[k]}</td><td>${score.toFixed(2)} × ${(w*100).toFixed(1)}%</td><td>= ${(contrib*100).toFixed(1)}%</td>`;
         table.appendChild(tr);
+        // Sub-rows for soft attributes
+        if (k === 'soft_attr' && bd.soft_attr_detail) {
+          for (const [sk, sv] of Object.entries(bd.soft_attr_detail)) {
+            const label = SA_LABELS[sk] || sk;
+            const subTr = document.createElement('tr');
+            subTr.innerHTML = `<td style="padding-left:18px;font-size:11px;color:var(--text-muted)">↳ ${label}</td><td style="font-size:11px;color:var(--text-muted)">${sv.toFixed(2)}</td><td></td>`;
+            table.appendChild(subTr);
+          }
+        }
       }
       const totalRow = document.createElement('tr');
       totalRow.className = 'breakdown-total';

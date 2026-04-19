@@ -38,13 +38,14 @@ async def rank_listings(
     avgdl = sum(len(d) for d in docs) / max(len(docs), 1)
     idf = _compute_idf(query_terms, docs)
 
+    candidate_stats = _compute_candidate_stats(candidates)
     scored: list[tuple[float, dict[str, Any]]] = []
     breakdowns: dict[str, dict[str, Any]] = {}
     for c, doc in zip(candidates, docs):
         t = _bm25(query_terms, doc, avgdl, idf)
         f = _feature_score(c, soft_facts)
         g = _geo_score(c, soft_facts)
-        a = _soft_attr_score(c, soft_facts)
+        a, a_detail = _soft_attr_score(c, soft_facts, candidate_stats)
         lm = _landmark_score(c, soft_facts)
         if lm is not None:
             total = 0.30 * lm + 0.245 * t + 0.175 * f + 0.140 * g + 0.140 * a
@@ -54,6 +55,7 @@ async def rank_listings(
                 "feature": round(f, 4), "feature_w": 0.175,
                 "geo": round(g, 4), "geo_w": 0.14,
                 "soft_attr": round(a, 4), "soft_attr_w": 0.14,
+                "soft_attr_detail": a_detail,
             }
         else:
             total = 0.35 * t + 0.25 * f + 0.20 * g + 0.20 * a
@@ -62,6 +64,7 @@ async def rank_listings(
                 "feature": round(f, 4), "feature_w": 0.25,
                 "geo": round(g, 4), "geo_w": 0.20,
                 "soft_attr": round(a, 4), "soft_attr_w": 0.20,
+                "soft_attr_detail": a_detail,
             }
         scored.append((total, c))
         breakdowns[str(c["listing_id"])] = bd
@@ -73,7 +76,7 @@ async def rank_listings(
     if api_key and len(top_n) >= 3:
         top_candidates = [c for _, c in top_n]
         rest = scored[30:]
-        reranked = await _llm_rerank(top_candidates, soft_facts, api_key, breakdowns)
+        reranked = await _llm_rerank(top_candidates, soft_facts, api_key, breakdowns, candidate_stats)
         return reranked + [
             _to_result(c, score=round(s, 4), reason=_formula_reason(c, soft_facts, s),
                        breakdown=breakdowns.get(str(c["listing_id"])))
@@ -218,11 +221,31 @@ def _landmark_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float | No
     return max(0.0, 1.0 - dist_km / 10.0)  # linear decay to 0 at 10 km
 
 
+# ── Candidate statistics ─────────────────────────────────────────────────────
+
+def _compute_candidate_stats(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    vals = []
+    for c in candidates:
+        price = _float(c.get("price"))
+        area = _float(c.get("area"))
+        if price and area and area > 0:
+            vals.append(price / area)
+    if vals:
+        vals.sort()
+        median = vals[len(vals) // 2]
+    else:
+        median = 25.0  # fallback: ~CHF 25/m² is a typical Swiss rental benchmark
+    return {"median_price_per_m2": median}
+
+
 # ── Soft attribute score ─────────────────────────────────────────────────────
 
-def _soft_attr_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
+def _soft_attr_score(c: dict[str, Any], soft_facts: dict[str, Any],
+                     candidate_stats: dict[str, Any] | None = None) -> tuple[float, dict[str, float]]:
+    """Returns (aggregate 0–1, sub-scores dict keyed by signal name)."""
     score = 0.0
     total_weight = 0.0
+    detail: dict[str, float] = {}
 
     brightness = soft_facts.get("brightness") or 0.0
     if brightness > 0.0:
@@ -235,6 +258,7 @@ def _soft_attr_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
             b += 0.3
         score += b * brightness
         total_weight += brightness
+        detail["brightness"] = round(b, 4)
 
     modernity = soft_facts.get("modernity") or 0.0
     if modernity > 0.0:
@@ -245,6 +269,7 @@ def _soft_attr_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
             m += 0.3
         score += m * modernity
         total_weight += modernity
+        detail["modernity"] = round(m, 4)
 
     family = soft_facts.get("family_friendly") or 0.0
     if family > 0.0:
@@ -258,16 +283,26 @@ def _soft_attr_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float:
             f += 0.35
         score += f * family
         total_weight += family
+        detail["family"] = round(f, 4)
 
     value = soft_facts.get("value_priority") or 0.0
     if value > 0.0:
         price = _float(c.get("price")) or 0.0
         area = _float(c.get("area")) or 1.0
-        v = max(0.0, 1.0 - (price / area) / 50.0)
+        price_per_m2 = price / area if area > 0 else 0.0
+        median = (candidate_stats or {}).get("median_price_per_m2", 25.0)
+        v = max(0.0, 1.0 - price_per_m2 / (median * 2))
         score += v * value
         total_weight += value
+        detail["value"] = round(v, 4)
 
-    return min(score / total_weight, 1.0) if total_weight > 0.0 else 0.5
+    for sig in ("quietness", "spaciousness", "views", "nature_proximity"):
+        w = soft_facts.get(sig) or 0.0
+        if w > 0.0:
+            detail[sig] = 0.0  # no structural proxy yet — signal present but unscored
+
+    agg = min(score / total_weight, 1.0) if total_weight > 0.0 else 0.5
+    return agg, detail
 
 
 # ── LLM re-ranking ───────────────────────────────────────────────────────────
@@ -277,15 +312,16 @@ async def _llm_rerank(
     soft_facts: dict[str, Any],
     api_key: str,
     breakdowns: dict[str, dict[str, Any]],
+    candidate_stats: dict[str, Any] | None = None,
 ) -> list[RankedListingResult]:
     global _rerank_client
     if _rerank_client is None:
         _rerank_client = anthropic.AsyncAnthropic(api_key=api_key)
 
-    listings_text = "\n".join(_format_listing(c, soft_facts) for c in candidates)
+    listings_text = "\n".join(_format_listing(c, soft_facts, candidate_stats) for c in candidates)
     user_msg = (
         f"User query: {soft_facts.get('raw_query', '')}\n\n"
-        f"Soft preferences: {_soft_summary(soft_facts)}\n\n"
+        f"Soft preferences: {_soft_summary(soft_facts, candidate_stats)}\n\n"
         f"Listings:\n{listings_text}\n\n"
         "Output JSON array sorted by score descending:"
     )
@@ -333,13 +369,18 @@ async def _llm_rerank(
     return results
 
 
-def _soft_summary(soft_facts: dict[str, Any]) -> str:
+def _soft_summary(soft_facts: dict[str, Any], candidate_stats: dict[str, Any] | None = None) -> str:
     parts = []
     for k in ("brightness", "modernity", "quietness", "spaciousness", "views",
-              "family_friendly", "commute_priority", "value_priority"):
+              "family_friendly", "commute_priority"):
         v = soft_facts.get(k)
         if v and float(v) >= 0.5:
             parts.append(f"{k.replace('_', ' ')}={v:.1f}")
+    v = soft_facts.get("value_priority")
+    if v and float(v) >= 0.5:
+        median = (candidate_stats or {}).get("median_price_per_m2")
+        median_str = f" (pool median CHF {median:.0f}/m²; prefer below that)" if median else ""
+        parts.append(f"value priority={v:.1f}{median_str}")
     if soft_facts.get("preferred_features"):
         parts.append(f"preferred features: {', '.join(soft_facts['preferred_features'])}")
     if soft_facts.get("keywords"):
@@ -349,24 +390,53 @@ def _soft_summary(soft_facts: dict[str, Any]) -> str:
     return "; ".join(parts) if parts else "general relevance"
 
 
-def _format_listing(c: dict[str, Any], soft_facts: dict[str, Any] | None = None) -> str:
+def _format_listing(c: dict[str, Any], soft_facts: dict[str, Any] | None = None,
+                    candidate_stats: dict[str, Any] | None = None) -> str:
     feats = ", ".join(_candidate_features(c)) or "none"
     desc = (c.get("description") or "")[:200].replace("\n", " ")
-    landmark_str = ""
-    if soft_facts:
-        lm_lat = soft_facts.get("landmark_lat")
-        lm_lon = soft_facts.get("landmark_lon")
-        lm_name = soft_facts.get("landmark_name", "landmark")
-        c_lat = _float(c.get("latitude"))
-        c_lon = _float(c.get("longitude"))
-        if lm_lat is not None and lm_lon is not None and c_lat is not None and c_lon is not None:
-            d = _dist_km(lm_lat, lm_lon, c_lat, c_lon)
-            landmark_str = f" | {d:.1f}km from {lm_name}"
+    sf = soft_facts or {}
+    signals: list[str] = []
+
+    # Landmark proximity
+    lm_lat = sf.get("landmark_lat")
+    lm_lon = sf.get("landmark_lon")
+    lm_name = sf.get("landmark_name", "landmark")
+    c_lat = _float(c.get("latitude"))
+    c_lon = _float(c.get("longitude"))
+    if lm_lat is not None and lm_lon is not None and c_lat is not None and c_lon is not None:
+        signals.append(f"{_dist_km(lm_lat, lm_lon, c_lat, c_lon):.1f}km from {lm_name}")
+
+    # Value vs median
+    if sf.get("value_priority") and (candidate_stats or {}).get("median_price_per_m2"):
+        price = _float(c.get("price"))
+        area = _float(c.get("area"))
+        median = candidate_stats["median_price_per_m2"]  # type: ignore[index]
+        if price and area and area > 0:
+            ppm2 = price / area
+            pct = (ppm2 - median) / median * 100
+            direction = "below" if pct < 0 else "above"
+            signals.append(f"CHF {ppm2:.0f}/m² ({abs(pct):.0f}% {direction} median)")
+
+    # Distance to public transport
+    if sf.get("commute_priority") and sf["commute_priority"] > 0.1:
+        d_pt = _float(c.get("distance_public_transport"))
+        if d_pt is not None:
+            signals.append(f"transport {int(d_pt)}m")
+
+    # Distances to schools/kindergarten
+    if sf.get("family_friendly") and sf["family_friendly"] > 0.1:
+        d_kg = _float(c.get("distance_kindergarten"))
+        d_sc = _float(c.get("distance_school_1"))
+        if d_kg is not None:
+            signals.append(f"kindergarten {int(d_kg)}m")
+        if d_sc is not None:
+            signals.append(f"school {int(d_sc)}m")
+
+    signals_str = (" | " + ", ".join(signals)) if signals else ""
     return (
         f"[{c['listing_id']}] {c.get('title', 'N/A')} | "
-        f"CHF {c.get('price', '?')}/mo | {c.get('area', '?')}m² | "
-        f"Rooms: {c.get('rooms', '?')} | City: {c.get('city', '?')} | "
-        f"Features: {feats}{landmark_str} | Desc: {desc}"
+        f"CHF {c.get('price', '?')}/mo | {c.get('rooms', '?')} rooms | {c.get('area', '?')}m² | "
+        f"City: {c.get('city', '?')} | Features: {feats}{signals_str} | Desc: {desc}"
     )
 
 
