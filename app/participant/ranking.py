@@ -9,6 +9,7 @@ from typing import Any
 
 import anthropic
 
+from app.core.image_search import image_similarity_scores
 from app.core.s3 import presign_image_urls
 from app.models.schemas import ListingData, RankedListingResult
 
@@ -39,6 +40,15 @@ async def rank_listings(
     idf = _compute_idf(query_terms, docs)
 
     candidate_stats = _compute_candidate_stats(candidates)
+
+    # Image similarity scores (no-op if embeddings file not yet available)
+    raw_query = soft_facts.get("raw_query", "")
+    img_scores: dict[str, float] = {}
+    if raw_query:
+        listing_ids = [str(c["listing_id"]) for c in candidates]
+        img_scores = image_similarity_scores(raw_query, listing_ids)
+    use_images = bool(img_scores)
+
     scored: list[tuple[float, dict[str, Any]]] = []
     breakdowns: dict[str, dict[str, Any]] = {}
     for c, doc in zip(candidates, docs):
@@ -47,14 +57,36 @@ async def rank_listings(
         g = _geo_score(c, soft_facts)
         a, a_detail = _soft_attr_score(c, soft_facts, candidate_stats)
         lm = _landmark_score(c, soft_facts)
-        if lm is not None:
-            total = 0.30 * lm + 0.245 * t + 0.175 * f + 0.140 * g + 0.140 * a
+        i = img_scores.get(str(c["listing_id"])) if use_images else None
+        if lm is not None and i is not None:
+            total = 0.25 * lm + 0.15 * i + 0.22 * t + 0.15 * f + 0.12 * g + 0.11 * a
             bd: dict[str, Any] = {
+                "landmark": round(lm, 4), "landmark_w": 0.25,
+                "image": round(i, 4), "image_w": 0.15,
+                "text": round(t, 4), "text_w": 0.22,
+                "feature": round(f, 4), "feature_w": 0.15,
+                "geo": round(g, 4), "geo_w": 0.12,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.11,
+                "soft_attr_detail": a_detail,
+            }
+        elif lm is not None:
+            total = 0.30 * lm + 0.245 * t + 0.175 * f + 0.140 * g + 0.140 * a
+            bd = {
                 "landmark": round(lm, 4), "landmark_w": 0.30,
                 "text": round(t, 4), "text_w": 0.245,
                 "feature": round(f, 4), "feature_w": 0.175,
                 "geo": round(g, 4), "geo_w": 0.14,
                 "soft_attr": round(a, 4), "soft_attr_w": 0.14,
+                "soft_attr_detail": a_detail,
+            }
+        elif i is not None:
+            total = 0.20 * i + 0.28 * t + 0.20 * f + 0.16 * g + 0.16 * a
+            bd = {
+                "image": round(i, 4), "image_w": 0.20,
+                "text": round(t, 4), "text_w": 0.28,
+                "feature": round(f, 4), "feature_w": 0.20,
+                "geo": round(g, 4), "geo_w": 0.16,
+                "soft_attr": round(a, 4), "soft_attr_w": 0.16,
                 "soft_attr_detail": a_detail,
             }
         else:
@@ -76,7 +108,8 @@ async def rank_listings(
     if api_key and len(top_n) >= 3:
         top_candidates = [c for _, c in top_n]
         rest = scored[30:]
-        reranked = await _llm_rerank(top_candidates, soft_facts, api_key, breakdowns, candidate_stats)
+        reranked = await _llm_rerank(top_candidates, soft_facts, api_key, breakdowns,
+                                     candidate_stats, img_scores)
         return reranked + [
             _to_result(c, score=round(s, 4), reason=_formula_reason(c, soft_facts, s),
                        breakdown=breakdowns.get(str(c["listing_id"])))
@@ -221,6 +254,17 @@ def _landmark_score(c: dict[str, Any], soft_facts: dict[str, Any]) -> float | No
     return max(0.0, 1.0 - dist_km / 10.0)  # linear decay to 0 at 10 km
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _float(v: Any) -> float | None:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 # ── Candidate statistics ─────────────────────────────────────────────────────
 
 def _compute_candidate_stats(candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -313,15 +357,18 @@ async def _llm_rerank(
     api_key: str,
     breakdowns: dict[str, dict[str, Any]],
     candidate_stats: dict[str, Any] | None = None,
+    img_scores: dict[str, float] | None = None,
 ) -> list[RankedListingResult]:
     global _rerank_client
     if _rerank_client is None:
         _rerank_client = anthropic.AsyncAnthropic(api_key=api_key)
 
-    listings_text = "\n".join(_format_listing(c, soft_facts, candidate_stats) for c in candidates)
+    listings_text = "\n".join(
+        _format_listing(c, soft_facts, candidate_stats, img_scores) for c in candidates
+    )
     user_msg = (
         f"User query: {soft_facts.get('raw_query', '')}\n\n"
-        f"Soft preferences: {_soft_summary(soft_facts, candidate_stats)}\n\n"
+        f"Soft preferences: {_soft_summary(soft_facts, candidate_stats, bool(img_scores))}\n\n"
         f"Listings:\n{listings_text}\n\n"
         "Output JSON array sorted by score descending:"
     )
@@ -369,7 +416,8 @@ async def _llm_rerank(
     return results
 
 
-def _soft_summary(soft_facts: dict[str, Any], candidate_stats: dict[str, Any] | None = None) -> str:
+def _soft_summary(soft_facts: dict[str, Any], candidate_stats: dict[str, Any] | None = None,
+                  use_images: bool = False) -> str:
     parts = []
     for k in ("brightness", "modernity", "quietness", "spaciousness", "views",
               "family_friendly", "commute_priority"):
@@ -387,11 +435,14 @@ def _soft_summary(soft_facts: dict[str, Any], candidate_stats: dict[str, Any] | 
         parts.append(f"search context: {', '.join(soft_facts['keywords'][:12])}")
     if soft_facts.get("landmark_name"):
         parts.append(f"near {soft_facts['landmark_name']} (soft proximity signal)")
+    if use_images:
+        parts.append("image similarity scoring active — listing image_similarity scores provided")
     return "; ".join(parts) if parts else "general relevance"
 
 
 def _format_listing(c: dict[str, Any], soft_facts: dict[str, Any] | None = None,
-                    candidate_stats: dict[str, Any] | None = None) -> str:
+                    candidate_stats: dict[str, Any] | None = None,
+                    img_scores: dict[str, float] | None = None) -> str:
     feats = ", ".join(_candidate_features(c)) or "none"
     desc = (c.get("description") or "")[:200].replace("\n", " ")
     sf = soft_facts or {}
@@ -405,6 +456,12 @@ def _format_listing(c: dict[str, Any], soft_facts: dict[str, Any] | None = None,
     c_lon = _float(c.get("longitude"))
     if lm_lat is not None and lm_lon is not None and c_lat is not None and c_lon is not None:
         signals.append(f"{_dist_km(lm_lat, lm_lon, c_lat, c_lon):.1f}km from {lm_name}")
+
+    # Image similarity
+    if img_scores:
+        img_sim = img_scores.get(str(c.get("listing_id", "")))
+        if img_sim is not None:
+            signals.append(f"image similarity {img_sim:.2f}")
 
     # Value vs median
     if sf.get("value_priority") and (candidate_stats or {}).get("median_price_per_m2"):
@@ -464,17 +521,6 @@ def _formula_reason(c: dict[str, Any], soft_facts: dict[str, Any], score: float)
     if not parts:
         parts.append("Matched hard filters and general relevance")
     return ". ".join(parts) + "."
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-def _float(v: Any) -> float | None:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def _to_result(c: dict[str, Any], score: float = 0.5, reason: str = "Matched hard filters.",

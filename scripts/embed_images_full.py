@@ -34,6 +34,7 @@ import boto3
 import numpy as np
 import voyageai
 from botocore.config import Config
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
 from tqdm import tqdm
 
@@ -44,6 +45,7 @@ S3_RE = re.compile(r"https://([^.]+)\.s3[^/]*/(.+)")
 SRED_IMAGES_DIR = pathlib.Path(__file__).resolve().parents[1] / "raw_data" / "sred_images"
 MODEL = "voyage-multimodal-3.5"
 CHECKPOINT_EVERY = 500
+BATCH_SIZE = 10  # listings per API request — smaller = more frequent progress updates
 OUT_PATH = pathlib.Path(__file__).resolve().parents[1] / "data" / "image_embeddings.npz"
 CHECKPOINT_PATH = pathlib.Path(__file__).resolve().parents[1] / "data" / "image_embeddings_checkpoint.npz"
 
@@ -72,13 +74,14 @@ def load_image(url: str, s3_client: Any) -> Image.Image | None:
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        data = urllib.request.urlopen(req, timeout=10).read()
+        data = urllib.request.urlopen(req, timeout=5).read()
         return Image.open(io.BytesIO(data)).convert("RGB")
     except Exception:
         return None
 
 
 def embed_images(client: voyageai.Client, images: list[Image.Image]) -> list[list[float]]:
+    """Embed a flat list of images in one API request."""
     for attempt in range(5):
         try:
             result = client.multimodal_embed(
@@ -95,6 +98,32 @@ def embed_images(client: voyageai.Client, images: list[Image.Image]) -> list[lis
                 time.sleep(wait)
                 continue
             raise
+
+
+def collect_images(row: sqlite3.Row, s3_client: Any) -> tuple[str, list[Image.Image]]:
+    """Load all usable images for a listing row in parallel. Returns (listing_id, images)."""
+    listing_id = row["listing_id"]
+    try:
+        imgs_data = json.loads(row["images_json"]).get("images", [])
+    except Exception:
+        return listing_id, []
+
+    urls = [
+        (img.get("url", "") if isinstance(img, dict) else str(img))
+        for img in imgs_data
+    ]
+    urls = [u for u in urls if u and "%" not in u]
+    if not urls:
+        return listing_id, []
+
+    # Fetch all images for this listing in parallel
+    pil_images: list[Image.Image | None] = [None] * len(urls)
+    with ThreadPoolExecutor(max_workers=min(len(urls), 4)) as ex:
+        futures = {ex.submit(load_image, url, s3_client): i for i, url in enumerate(urls)}
+        for f in as_completed(futures):
+            pil_images[futures[f]] = f.result()
+
+    return listing_id, [img for img in pil_images if img is not None]
 
 
 def save_checkpoint(
@@ -153,51 +182,57 @@ def main(limit: int | None) -> None:
     failed = 0
 
     pbar = tqdm(remaining, desc="Embedding", unit="listing", initial=len(already_done), total=total)
-    for i, row in enumerate(pbar):
-        listing_id = row["listing_id"]
+
+    # Process in batches of BATCH_SIZE listings per API request
+    for batch_start in range(0, len(remaining), BATCH_SIZE):
+        batch_rows = remaining[batch_start: batch_start + BATCH_SIZE]
+
+        # Load images for all listings in the batch concurrently
+        # Cap at 4 workers to avoid throttling Comparis CDN
+        batch: list[tuple[str, list[Image.Image]]] = []
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = {ex.submit(collect_images, row, s3): row for row in batch_rows}
+            for f in as_completed(futures):
+                lid, imgs = f.result()
+                if imgs:
+                    batch.append((lid, imgs))
+                else:
+                    skipped += 1
+                    pbar.update(1)
+
+        if not batch:
+            continue
+
+        # Flatten all images into one API request
+        all_imgs_flat: list[Image.Image] = []
+        sizes: list[int] = []  # number of images per listing
+        for _, imgs in batch:
+            all_imgs_flat.extend(imgs)
+            sizes.append(len(imgs))
 
         try:
-            imgs_data = json.loads(row["images_json"]).get("images", [])
-        except Exception:
-            skipped += 1
-            continue
-
-        urls = [
-            (img.get("url", "") if isinstance(img, dict) else str(img))
-            for img in imgs_data
-        ]
-        urls = [u for u in urls if u and "%" not in u]
-
-        if not urls:
-            skipped += 1
-            continue
-
-        pil_images: list[Image.Image] = []
-        for url in urls:
-            img = load_image(url, s3)
-            if img is not None:
-                pil_images.append(img)
-
-        if not pil_images:
-            skipped += 1
-            continue
-
-        try:
-            vectors = embed_images(voyage, pil_images)
+            all_vecs = embed_images(voyage, all_imgs_flat)
         except Exception as e:
-            print(f"  [{listing_id}] embed failed: {e}")
-            failed += 1
+            print(f"\n  batch embed failed: {e}")
+            failed += len(batch)
+            pbar.update(len(batch))
             continue
 
-        start = len(all_vectors)
-        all_vectors.extend(vectors)
-        listing_index[listing_id] = list(range(start, start + len(vectors)))
-        processed += 1
+        # Assign vectors back to each listing
+        offset = 0
+        for (lid, _), size in zip(batch, sizes):
+            start = len(all_vectors)
+            all_vectors.extend(all_vecs[offset: offset + size])
+            listing_index[lid] = list(range(start, start + size))
+            offset += size
+            processed += 1
+            pbar.update(1)
+
         pbar.set_postfix(vectors=len(all_vectors), skipped=skipped, failed=failed)
 
         if processed % CHECKPOINT_EVERY == 0:
             save_checkpoint(CHECKPOINT_PATH, all_vectors, listing_index)
-            print(f"  checkpoint saved ({len(listing_index)} listings)")
+            print(f"\n  checkpoint saved ({len(listing_index)} listings)")
 
     # Final save
     save_checkpoint(OUT_PATH, all_vectors, listing_index)
