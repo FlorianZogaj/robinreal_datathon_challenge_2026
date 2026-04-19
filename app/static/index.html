@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -741,7 +741,7 @@
   }
 
   function load() {
-    applyTheme(localStorage.getItem('robin_theme') || 'dark');
+    applyTheme(localStorage.getItem('robin_theme') || 'light');
     try {
       const raw = localStorage.getItem('robin_sessions');
       sessions = raw ? JSON.parse(raw) : [];
