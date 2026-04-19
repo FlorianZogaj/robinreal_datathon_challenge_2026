@@ -1092,9 +1092,9 @@
       bdTitle.textContent = 'Score Breakdown';
       body.appendChild(bdTitle);
 
-      const LABELS = { landmark: 'Landmark proximity', text: 'Text match', feature: 'Features',
-                       geo: 'Geo (distances)', soft_attr: 'Soft attributes' };
-      const signals = ['landmark', 'text', 'feature', 'geo', 'soft_attr'].filter(k => bd[k] != null);
+      const LABELS = { landmark: 'Landmark proximity', image: 'Image similarity', text: 'Text match',
+                       feature: 'Features', geo: 'Geo (distances)', soft_attr: 'Soft attributes' };
+      const signals = ['landmark', 'image', 'text', 'feature', 'geo', 'soft_attr'].filter(k => bd[k] != null);
 
       const table = document.createElement('table');
       table.className = 'modal-breakdown';
